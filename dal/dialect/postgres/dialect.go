@@ -29,7 +29,7 @@ func (d *Dialect) Placeholder(n int) string { return fmt.Sprintf("$%d", n) }
 // CreateTable generates CREATE TABLE SQL for the given CompiledDoc.
 func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %q (\n", doc.TableName))
+	fmt.Fprintf(&sb, "CREATE TABLE IF NOT EXISTS %q (\n", doc.TableName)
 
 	colDefs := make([]string, 0, len(doc.Fields))
 	for _, f := range doc.Fields {
@@ -86,7 +86,7 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		}
 		cols = strings.Join(quoted, ", ")
 	}
-	sb.WriteString(fmt.Sprintf("SELECT %s FROM %q", cols, q.TableName))
+	fmt.Fprintf(&sb, "SELECT %s FROM %q", cols, q.TableName)
 
 	n := 1
 	conditions := make([]string, 0)
@@ -118,7 +118,7 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		if len(parts) > 1 {
 			dir = " " + parts[1]
 		}
-		sb.WriteString(fmt.Sprintf(" ORDER BY %q%s", col, dir))
+		fmt.Fprintf(&sb, " ORDER BY %q%s", col, dir)
 	}
 	if q.Limit > 0 {
 		sb.WriteString(fmt.Sprintf(" LIMIT %d", q.Limit))

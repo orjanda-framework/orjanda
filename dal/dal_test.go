@@ -503,7 +503,7 @@ func TestMigrateUp_MultiDialectFileIsolation(t *testing.T) {
 
 	// Write a postgres migration file with Postgres-only DDL syntax (e.g. JSONB)
 	pgFile := filepath.Join(dir, "20260809150000_invalid_postgres.sql")
-	err = os.WriteFile(pgFile, []byte("-- +goose Up\nCREATE TABLE pg_only (data JSONB);\n-- +goose Down\n"), 0644)
+	err = os.WriteFile(pgFile, []byte("-- +goose Up\nCREATE TABLE pg_only (data JSONB);\n-- +goose Down\n"), 0o644)
 	require.NoError(t, err)
 
 	// Up on SQLite should skip the _postgres.sql file and succeed cleanly

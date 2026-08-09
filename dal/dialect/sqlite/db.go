@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 
 	// Register the modernc SQLite driver.
@@ -26,18 +25,19 @@ type DB struct {
 
 // Open opens a SQLite database at the given DSN (file path or ":memory:").
 func Open(dsn string) (*DB, error) {
+	ctx := context.Background()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, orjerrors.Internal("failed to open sqlite database", err)
 	}
 	// Enforce WAL mode for concurrent read/write safety.
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
+	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
+		_ = db.Close()
 		return nil, orjerrors.Internal("failed to enable WAL mode", err)
 	}
 	// Enable foreign-key enforcement.
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close()
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		_ = db.Close()
 		return nil, orjerrors.Internal("failed to enable foreign keys", err)
 	}
 	return &DB{
@@ -86,7 +86,7 @@ func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) 
 	if err != nil {
 		return nil, orjerrors.Internal("query failed", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanRows(rows)
 }
 
@@ -120,7 +120,7 @@ func (d *DB) Insert(ctx context.Context, docType string, data map[string]any) (s
 }
 
 // Update mutates an existing record.
-func (d *DB) Update(ctx context.Context, docType string, id string, data map[string]any) error {
+func (d *DB) Update(ctx context.Context, docType, id string, data map[string]any) error {
 	tn, ok := d.tableNames[docType]
 	if !ok {
 		return orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
@@ -142,7 +142,7 @@ func (d *DB) Update(ctx context.Context, docType string, id string, data map[str
 }
 
 // Delete hard-deletes a record.
-func (d *DB) Delete(ctx context.Context, docType string, id string) error {
+func (d *DB) Delete(ctx context.Context, docType, id string) error {
 	tn, ok := d.tableNames[docType]
 	if !ok {
 		return orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
@@ -214,7 +214,7 @@ func (t *txDB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error
 	if err != nil {
 		return nil, orjerrors.Internal("query failed", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanRows(rows)
 }
 
@@ -245,7 +245,7 @@ func (t *txDB) Insert(ctx context.Context, docType string, data map[string]any) 
 	return id, nil
 }
 
-func (t *txDB) Update(ctx context.Context, docType string, id string, data map[string]any) error {
+func (t *txDB) Update(ctx context.Context, docType, id string, data map[string]any) error {
 	tn, ok := t.tableNames[docType]
 	if !ok {
 		return orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
@@ -266,7 +266,7 @@ func (t *txDB) Update(ctx context.Context, docType string, id string, data map[s
 	return nil
 }
 
-func (t *txDB) Delete(ctx context.Context, docType string, id string) error {
+func (t *txDB) Delete(ctx context.Context, docType, id string) error {
 	tn, ok := t.tableNames[docType]
 	if !ok {
 		return orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
@@ -283,7 +283,7 @@ func (t *txDB) Delete(ctx context.Context, docType string, id string) error {
 	return nil
 }
 
-func (t *txDB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
+func (t *txDB) Transaction(_ context.Context, fn func(dal.Tx) error) error {
 	return fn(t)
 }
 
@@ -372,9 +372,10 @@ func scanRows(rows *sql.Rows) ([]map[string]any, error) {
 
 // CreateTables creates all tables for the given compiled docs (idempotent).
 func (d *DB) CreateTables(docs []*schema.CompiledDoc) error {
+	ctx := context.Background()
 	for _, doc := range docs {
 		ddl := d.dialect.CreateTable(*doc)
-		if _, err := d.db.Exec(ddl); err != nil {
+		if _, err := d.db.ExecContext(ctx, ddl); err != nil {
 			return orjerrors.Internal(fmt.Sprintf("create table %q failed", doc.TableName), err)
 		}
 		for _, child := range doc.ChildTables {
@@ -383,7 +384,7 @@ func (d *DB) CreateTables(docs []*schema.CompiledDoc) error {
 				Fields:    child.Fields,
 			}
 			childDDL := d.dialect.CreateTable(childDoc)
-			if _, err := d.db.Exec(childDDL); err != nil {
+			if _, err := d.db.ExecContext(ctx, childDDL); err != nil {
 				return orjerrors.Internal(fmt.Sprintf("create child table %q failed", childDoc.TableName), err)
 			}
 		}
@@ -393,11 +394,11 @@ func (d *DB) CreateTables(docs []*schema.CompiledDoc) error {
 
 // ExistingTables returns the set of table names currently in the database.
 func (d *DB) ExistingTables() (map[string]bool, error) {
-	rows, err := d.db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'goose_%'")
+	rows, err := d.db.QueryContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'goose_%'")
 	if err != nil {
 		return nil, orjerrors.Internal("failed to list tables", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	tables := make(map[string]bool)
 	for rows.Next() {
 		var name string
@@ -411,11 +412,11 @@ func (d *DB) ExistingTables() (map[string]bool, error) {
 
 // ExistingColumns returns the set of column names for a given table.
 func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
-	rows, err := d.db.Query(fmt.Sprintf("PRAGMA table_info(%q)", tableName))
+	rows, err := d.db.QueryContext(context.Background(), fmt.Sprintf("PRAGMA table_info(%q)", tableName))
 	if err != nil {
 		return nil, orjerrors.Internal("PRAGMA table_info failed", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	cols := make(map[string]bool)
 	for rows.Next() {
 		var cid int
@@ -433,12 +434,3 @@ func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
 
 // Underlying returns the raw *sql.DB.
 func (d *DB) Underlying() *sql.DB { return d.db }
-
-func sortedKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}

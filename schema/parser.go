@@ -15,7 +15,7 @@ func ParseFields(t reflect.Type) ([]Field, []CompiledChild, error) {
 }
 
 func parseFieldsInternal(t reflect.Type, visited []reflect.Type) ([]Field, []CompiledChild, error) {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {

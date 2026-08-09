@@ -47,8 +47,8 @@ type Uninstallable interface {
 // Returns an error if a circular dependency is detected.
 func ResolveDAG(apps []Definition) ([]Definition, error) {
 	appMap := make(map[string]Definition)
-	for _, app := range apps {
-		appMap[app.Name] = app
+	for i := range apps {
+		appMap[apps[i].Name] = apps[i]
 	}
 
 	var result []Definition
@@ -84,8 +84,8 @@ func ResolveDAG(apps []Definition) ([]Definition, error) {
 		return nil
 	}
 
-	for _, app := range apps {
-		if err := visit(app.Name); err != nil {
+	for i := range apps {
+		if err := visit(apps[i].Name); err != nil {
 			return nil, err
 		}
 	}

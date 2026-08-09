@@ -216,10 +216,10 @@ func (m *migrator) Write(diff *schema.SchemaDiff, dir string, allowDestructive b
 	filename := fmt.Sprintf("%s_auto_%s.sql", ts, m.dialect.Name())
 	fullPath := filepath.Join(dir, filename)
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", orjerrors.Internal("failed to create migrations directory", err)
 	}
-	if err := os.WriteFile(fullPath, []byte(sb.String()), 0644); err != nil {
+	if err := os.WriteFile(fullPath, []byte(sb.String()), 0o644); err != nil {
 		return "", orjerrors.Internal("failed to write migration file", err)
 	}
 
@@ -363,11 +363,11 @@ func (i *dbInspector) ExistingTables() (map[string]bool, error) {
 		query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name NOT LIKE 'goose_%'"
 	}
 
-	rows, err := i.db.Query(query)
+	rows, err := i.db.QueryContext(context.Background(), query)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	tables := make(map[string]bool)
 	for rows.Next() {
@@ -383,11 +383,11 @@ func (i *dbInspector) ExistingTables() (map[string]bool, error) {
 func (i *dbInspector) ExistingColumns(tableName string) (map[string]bool, error) {
 	cols := make(map[string]bool)
 	if i.dialect.Name() == "sqlite" {
-		rows, err := i.db.Query(fmt.Sprintf("PRAGMA table_info(%q)", tableName))
+		rows, err := i.db.QueryContext(context.Background(), fmt.Sprintf("PRAGMA table_info(%q)", tableName))
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var cid int
 			var name, typ string
@@ -402,13 +402,13 @@ func (i *dbInspector) ExistingColumns(tableName string) (map[string]bool, error)
 		return cols, rows.Err()
 	}
 
-	rows, err := i.db.Query(`
+	rows, err := i.db.QueryContext(context.Background(), `
 		SELECT column_name FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = $1`, tableName)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {

@@ -13,7 +13,7 @@ import (
 type Store interface {
 	// Get retrieves the value for key. Returns (value, true, nil) on hit,
 	// (nil, false, nil) on miss, and (nil, false, err) on error.
-	Get(ctx context.Context, key string) ([]byte, bool, error)
+	Get(ctx context.Context, key string) (val []byte, found bool, err error)
 	// Set stores value under key with the given TTL. A zero TTL means
 	// the entry never expires.
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
@@ -57,7 +57,7 @@ func NewLRUStore(maxItems int) Store {
 }
 
 // Get retrieves a value from the cache.
-func (s *lruStore) Get(_ context.Context, key string) ([]byte, bool, error) {
+func (s *lruStore) Get(_ context.Context, key string) (val []byte, found bool, err error) {
 	s.mu.RLock()
 	e, ok := s.items[key]
 	s.mu.RUnlock()

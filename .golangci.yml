@@ -24,6 +24,12 @@ linters:
         - diagnostic
         - style
         - performance
+      disabled-checks:
+        - hugeParam
+        - paramTypeCombine
+        - unnamedResult
+        - ptrToRefParam
+        - rangeValCopy
 
 formatters:
   enable:

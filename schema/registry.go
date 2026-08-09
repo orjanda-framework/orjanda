@@ -31,7 +31,7 @@ func NewRegistry() Registry {
 
 // RegisterDependency is a package-level helper that allows recording dependencies
 // between applications in the registry, to verify dependency-ordered registration.
-func RegisterDependency(reg Registry, appName string, dependency string) {
+func RegisterDependency(reg Registry, appName, dependency string) {
 	if r, ok := reg.(*registry); ok {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -106,7 +106,9 @@ func (r *registry) Compile() error {
 
 		// Prepend BaseDocument fields (PRD §10.2)
 		baseFields := getBaseDocumentFields()
-		allFields := append(baseFields, fields...)
+		allFields := make([]Field, 0, len(baseFields)+len(fields))
+		allFields = append(allFields, baseFields...)
+		allFields = append(allFields, fields...)
 
 		// For each child table, prepend BaseChild fields
 		for i := range children {
@@ -142,7 +144,8 @@ func (r *registry) Compile() error {
 	// 3. Relationship Resolution Pass (verify all Links point to registered types)
 	for _, doc := range r.docs {
 		// Check top-level fields
-		for _, f := range doc.Fields {
+		for i := range doc.Fields {
+			f := &doc.Fields[i]
 			if f.Type == FieldTypeLink {
 				if f.LinkTarget == "" {
 					return errors.New(errors.CodeValidation, fmt.Sprintf("Link field %q in %q lacks a link target", f.Name, doc.Name), nil, nil)
@@ -154,7 +157,8 @@ func (r *registry) Compile() error {
 		}
 		// Check child table fields
 		for _, child := range doc.ChildTables {
-			for _, f := range child.Fields {
+			for j := range child.Fields {
+				f := &child.Fields[j]
 				if f.Type == FieldTypeLink {
 					if f.LinkTarget == "" {
 						return errors.New(errors.CodeValidation, fmt.Sprintf("Link field %q in child table %q of %q lacks a link target", f.Name, child.TypeName, doc.Name), nil, nil)
@@ -201,7 +205,8 @@ func (r *registry) Relationships(docType string) []Relationship {
 
 	// Find relationships where docType is the source (from)
 	if doc, ok := r.docs[docType]; ok {
-		for _, f := range doc.Fields {
+		for i := range doc.Fields {
+			f := &doc.Fields[i]
 			if f.Type == FieldTypeLink {
 				rels = append(rels, Relationship{
 					FromDoc:      docType,
@@ -218,16 +223,23 @@ func (r *registry) Relationships(docType string) []Relationship {
 				ToDoc:        child.DocType,
 				IsChildTable: true,
 			})
-			// Also inspect child table fields for links
-			for _, f := range child.Fields {
-				if f.Type == FieldTypeLink {
-					rels = append(rels, Relationship{
-						FromDoc:      child.DocType,
-						FromField:    f.Name,
-						ToDoc:        f.LinkTarget,
-						IsChildTable: false,
-					})
-				}
+		}
+	}
+
+	// Find relationships where docType is the target (to)
+	for _, doc := range r.docs {
+		if doc.Name == docType {
+			continue
+		}
+		for i := range doc.Fields {
+			f := &doc.Fields[i]
+			if f.Type == FieldTypeLink && f.LinkTarget == docType {
+				rels = append(rels, Relationship{
+					FromDoc:      doc.Name,
+					FromField:    f.Name,
+					ToDoc:        docType,
+					IsChildTable: false,
+				})
 			}
 		}
 	}
