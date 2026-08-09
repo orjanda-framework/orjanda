@@ -4,10 +4,9 @@ linters:
   default: none
   enable:
     - errcheck        # unchecked errors
-    - gosimple        # simplification suggestions
     - govet           # go vet checks
     - ineffassign     # assignments that have no effect
-    - staticcheck     # staticcheck analysis suite
+    - staticcheck     # staticcheck analysis suite (includes gosimple checks)
     - unused          # unused code
     - gocritic        # additional checks
     - misspell        # spelling in comments/strings
