@@ -1,7 +1,9 @@
 package schema_test
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/schema"
@@ -310,5 +312,37 @@ func TestRegistry_DependencyOrder(t *testing.T) {
 		if !errors.Is(err, errors.ErrValidation) {
 			t.Errorf("expected validation error, got %v", err)
 		}
+	}
+}
+
+type dynamicDoc struct {
+	schema.BaseDocument
+	name string
+}
+
+func (d *dynamicDoc) DocMeta() schema.Meta {
+	return schema.Meta{Name: d.name}
+}
+
+func TestRegistry_CompilePerformance(t *testing.T) {
+	reg := schema.NewRegistry()
+	for i := 0; i < 100; i++ {
+		err := reg.Register("perf_app", &dynamicDoc{name: fmt.Sprintf("Doc%d", i)})
+		if err != nil {
+			t.Fatalf("failed to register doc %d: %v", i, err)
+		}
+	}
+
+	start := time.Now()
+	err := reg.Compile()
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("failed to compile registry: %v", err)
+	}
+
+	t.Logf("Compiled 100 docs in %s", elapsed)
+	if elapsed > 2*time.Second {
+		t.Errorf("compile took %s, which is slower than the 2s target threshold", elapsed)
 	}
 }

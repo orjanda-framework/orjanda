@@ -86,7 +86,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ---
 
-### Phase 1 — Schema, Registry & Application/Module System
+### Phase 1 — Schema, Registry & Application/Module System ✅ COMPLETE
 
 **Objective:** A developer can define a `Document` struct with `oj` tags and a `DocMeta()`, register it via an `app.Definition`, and have it compile into a queryable, read-only `Registry`.
 
@@ -101,12 +101,12 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 0 (`errors`, `config`).
 
 **Completion criteria:**
-- [ ] Defining a Document with every `oj` annotation from PRD §10.4 produces a correct `CompiledDoc` (field-by-field assertion test).
-- [ ] A Link to a non-existent DocType fails `Compile()` with `errors.CodeValidation`.
-- [ ] A circular child-table definition fails `Compile()`.
-- [ ] Two Applications with a `Dependency` between them register hooks in dependency order, not declaration order (TAD §7.1 step 3, directly tested).
-- [ ] `Registry.Compile()` on 100 dummy Documents completes in < 2s (PRD §33.1 target, tested here since it's the first point the target is measurable).
-- [ ] Registry is provably immutable after `Compile()` (attempting `Register()` post-compile returns an error).
+- [x] Defining a Document with every `oj` annotation from PRD §10.4 produces a correct `CompiledDoc` (field-by-field assertion test).
+- [x] A Link to a non-existent DocType fails `Compile()` with `errors.CodeValidation`.
+- [x] A circular child-table definition fails `Compile()`.
+- [x] Two Applications with a `Dependency` between them register hooks in dependency order, not declaration order (TAD §7.1 step 3, directly tested).
+- [x] `Registry.Compile()` on 100 dummy Documents completes in < 2s (PRD §33.1 target, tested here since it's the first point the target is measurable).
+- [x] Registry is provably immutable after `Compile()` (attempting `Register()` post-compile returns an error).
 
 ---
 
