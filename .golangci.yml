@@ -9,7 +9,6 @@ linters:
     - ineffassign     # assignments that have no effect
     - staticcheck     # staticcheck analysis suite
     - unused          # unused code
-    - gofmt           # formatting (fail on unformatted code)
     - gocritic        # additional checks
     - misspell        # spelling in comments/strings
     - revive          # fast, configurable linter (replaces golint)
@@ -26,3 +25,7 @@ linters:
         - diagnostic
         - style
         - performance
+
+formatters:
+  enable:
+    - gofmt           # formatting (fail on unformatted code)

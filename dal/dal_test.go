@@ -220,15 +220,15 @@ func TestFullTextSearch_SQLite_ReturnsMatchingIDs(t *testing.T) {
 	ctx := context.Background()
 	// Insert a record with a searchable Title.
 	id, err := db.Insert(ctx, "TestDoc", map[string]any{
-		"title":      "Orjanda Framework",
-		"email":      "test@example.com",
-		"name":       "Orjanda Framework",
-		"owner":      "",
-		"created_at": time.Now(),
-		"updated_at": time.Now(),
+		"title":       "Orjanda Framework",
+		"email":       "test@example.com",
+		"name":        "Orjanda Framework",
+		"owner":       "",
+		"created_at":  time.Now(),
+		"updated_at":  time.Now(),
 		"modified_by": "",
-		"doc_status": 0,
-		"deleted":    false,
+		"doc_status":  0,
+		"deleted":     false,
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
@@ -541,4 +541,3 @@ func TestSQLiteDB_FieldResolutionAndIDPreservation(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, "Pre-assigned ID Test", rows[0]["title"])
 }
-

@@ -365,8 +365,8 @@ type BaseDocument struct {
 	Deleted    bool      `oj:"-"` // soft-delete flag
 }
 
-func (b *BaseDocument) GetID() string      { return b.ID }
-func (b *BaseDocument) SetID(id string)    { b.ID = id }
+func (b *BaseDocument) GetID() string   { return b.ID }
+func (b *BaseDocument) SetID(id string) { b.ID = id }
 
 // Get and Set on BaseDocument handle the auto-fields only. Document structs
 // that embed BaseDocument must override Get/Set to expose their own fields.

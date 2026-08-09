@@ -104,10 +104,10 @@ func (e *orjandaError) Error() string {
 	return fmt.Sprintf("[%s] %s", e.code, e.message)
 }
 
-func (e *orjandaError) Code() ErrorCode        { return e.code }
+func (e *orjandaError) Code() ErrorCode         { return e.code }
 func (e *orjandaError) Message() string         { return e.message }
 func (e *orjandaError) Details() map[string]any { return e.details }
-func (e *orjandaError) Unwrap() error            { return e.cause }
+func (e *orjandaError) Unwrap() error           { return e.cause }
 
 // New constructs a bare errors.Error with code, message, optional details map,
 // and an optional underlying cause. Prefer the named constructors below.
