@@ -1,6 +1,7 @@
 package errors
 
 import (
+	stderrors "errors"
 	"fmt"
 	"net/http"
 )
@@ -201,4 +202,10 @@ func As(err error, target *Error) bool {
 		return As(u.Unwrap(), target)
 	}
 	return false
+}
+
+// Is reports whether err matches target. This is a convenience wrapper
+// so callers do not need to import the standard "errors" package just to call errors.Is.
+func Is(err, target error) bool {
+	return stderrors.Is(err, target)
 }
