@@ -121,10 +121,10 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		fmt.Fprintf(&sb, " ORDER BY %q%s", col, dir)
 	}
 	if q.Limit > 0 {
-		sb.WriteString(fmt.Sprintf(" LIMIT %d", q.Limit))
+		fmt.Fprintf(&sb, " LIMIT %d", q.Limit)
 	}
 	if q.Offset > 0 {
-		sb.WriteString(fmt.Sprintf(" OFFSET %d", q.Offset))
+		fmt.Fprintf(&sb, " OFFSET %d", q.Offset)
 	}
 
 	return sb.String(), args

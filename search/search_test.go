@@ -19,10 +19,11 @@ import (
 // some seed data for FTS tests.
 func setupSearchDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
+	ctx := context.Background()
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
 
-	_, err = db.Exec(`
+	_, err = db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS "employees" (
 			"id"       TEXT PRIMARY KEY,
 			"name"     TEXT NOT NULL,
@@ -31,13 +32,13 @@ func setupSearchDB(t *testing.T) (*sql.DB, func()) {
 		)`)
 	require.NoError(t, err)
 
-	_, err = db.Exec(`INSERT INTO "employees" ("id", "name", "email", "deleted") VALUES
+	_, err = db.ExecContext(ctx, `INSERT INTO "employees" ("id", "name", "email", "deleted") VALUES
 		('id-001', 'Alice Johnson', 'alice@example.com', 0),
 		('id-002', 'Bob Smith',    'bob@example.com',   0),
 		('id-003', 'Charlie Alice','charlie@example.com', 0)`)
 	require.NoError(t, err)
 
-	return db, func() { db.Close() }
+	return db, func() { _ = db.Close() }
 }
 
 // Phase 2 Completion Criterion 5:

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	// Register the modernc SQLite driver.
 	_ "modernc.org/sqlite"
@@ -434,3 +435,12 @@ func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
 
 // Underlying returns the raw *sql.DB.
 func (d *DB) Underlying() *sql.DB { return d.db }
+
+func formatValue(v any) any {
+	switch val := v.(type) {
+	case time.Time:
+		return val.Format(time.RFC3339)
+	default:
+		return v
+	}
+}

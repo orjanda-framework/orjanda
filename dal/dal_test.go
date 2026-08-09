@@ -55,7 +55,7 @@ func newTestSQLiteDB(t *testing.T, reg schema.Registry) *sqlite.DB {
 	t.Helper()
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 
 	docs := reg.List()
 	err = db.CreateTables(docs)
@@ -84,7 +84,7 @@ func TestMigratorDiff_EmptyDB_ProducesCreateTables(t *testing.T) {
 
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	m := dal.NewMigratorWithInspector(
 		db.Dialect(),
@@ -240,7 +240,7 @@ func TestFullTextSearch_SQLite_ReturnsMatchingIDs(t *testing.T) {
 
 	rows, err := db.Underlying().QueryContext(ctx, sqlStr, args...)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {

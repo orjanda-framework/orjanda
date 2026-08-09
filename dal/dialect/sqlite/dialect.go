@@ -4,24 +4,25 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/orjanda-framework/orjanda/dal"
 	"github.com/orjanda-framework/orjanda/schema"
 )
 
-// Dialect implements dal.Dialect for SQLite (modernc.org/sqlite, pure-Go).
-// See TAD §2.3 and PRD §13.3.
+// Dialect implements dal.Dialect for SQLite.
 type Dialect struct{}
 
-// New returns a new SQLite Dialect.
+// New creates a new SQLite Dialect.
 func New() *Dialect { return &Dialect{} }
 
 // Name returns "sqlite".
 func (d *Dialect) Name() string { return "sqlite" }
 
-// DriverName returns the driver string registered by modernc.org/sqlite.
+// DriverName returns "sqlite".
 func (d *Dialect) DriverName() string { return "sqlite" }
+
+// Quote returns the double-quoted string identifier.
+func (d *Dialect) Quote(s string) string { return fmt.Sprintf("%q", s) }
 
 // Placeholder returns "?" for all positions (SQLite positional style).
 func (d *Dialect) Placeholder(_ int) string { return "?" }
@@ -29,7 +30,7 @@ func (d *Dialect) Placeholder(_ int) string { return "?" }
 // CreateTable generates CREATE TABLE SQL for the given CompiledDoc.
 func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %q (\n", doc.TableName))
+	fmt.Fprintf(&sb, "CREATE TABLE IF NOT EXISTS %q (\n", doc.TableName)
 
 	colDefs := make([]string, 0, len(doc.Fields))
 	for _, f := range doc.Fields {
@@ -52,6 +53,8 @@ func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 }
 
 // AlterTable generates ALTER TABLE SQL for column additions and drops.
+// Note: SQLite does not support DROP COLUMN in older versions natively,
+// but modern sqlite (3.35.0+) supports ALTER TABLE DROP COLUMN.
 func (d *Dialect) AlterTable(diff schema.TableAlteration) []string {
 	stmts := make([]string, 0)
 	for _, f := range diff.AddColumns {
@@ -83,7 +86,7 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		}
 		cols = strings.Join(quoted, ", ")
 	}
-	sb.WriteString(fmt.Sprintf("SELECT %s FROM %q", cols, q.TableName))
+	fmt.Fprintf(&sb, "SELECT %s FROM %q", cols, q.TableName)
 
 	conditions := make([]string, 0)
 	if !q.IncludeDeleted {
@@ -112,13 +115,13 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		if len(parts) > 1 {
 			dir = " " + parts[1]
 		}
-		sb.WriteString(fmt.Sprintf(" ORDER BY %q%s", col, dir))
+		fmt.Fprintf(&sb, " ORDER BY %q%s", col, dir)
 	}
 	if q.Limit > 0 {
-		sb.WriteString(fmt.Sprintf(" LIMIT %d", q.Limit))
+		fmt.Fprintf(&sb, " LIMIT %d", q.Limit)
 	}
 	if q.Offset > 0 {
-		sb.WriteString(fmt.Sprintf(" OFFSET %d", q.Offset))
+		fmt.Fprintf(&sb, " OFFSET %d", q.Offset)
 	}
 
 	return sb.String(), args
@@ -134,17 +137,16 @@ func (d *Dialect) InsertSQL(tableName string, fields map[string]any) (string, []
 
 	placeholders := make([]string, len(cols))
 	args := make([]any, len(cols))
+	quotedCols := make([]string, len(cols))
+
 	for i, col := range cols {
+		quotedCols[i] = fmt.Sprintf("%q", col)
 		placeholders[i] = "?"
 		args[i] = fields[col]
 	}
 
-	quotedCols := make([]string, len(cols))
-	for i, c := range cols {
-		quotedCols[i] = fmt.Sprintf("%q", c)
-	}
-
-	sql := fmt.Sprintf("INSERT INTO %q (%s) VALUES (%s)",
+	sql := fmt.Sprintf(
+		"INSERT INTO %q (%s) VALUES (%s)",
 		tableName,
 		strings.Join(quotedCols, ", "),
 		strings.Join(placeholders, ", "),
@@ -152,89 +154,74 @@ func (d *Dialect) InsertSQL(tableName string, fields map[string]any) (string, []
 	return sql, args
 }
 
-// UpdateSQL renders an UPDATE statement for SQLite (? placeholders).
-func (d *Dialect) UpdateSQL(tableName string, id string, fields map[string]any) (string, []any) {
+// UpdateSQL renders an UPDATE statement for SQLite.
+func (d *Dialect) UpdateSQL(tableName, id string, fields map[string]any) (string, []any) {
 	cols := make([]string, 0, len(fields))
 	for k := range fields {
+		if k == "id" {
+			continue // ID is set in WHERE
+		}
 		cols = append(cols, k)
 	}
 	sort.Strings(cols)
 
 	setClauses := make([]string, len(cols))
-	args := make([]any, len(cols))
+	args := make([]any, 0, len(cols)+1)
+
 	for i, col := range cols {
 		setClauses[i] = fmt.Sprintf("%q = ?", col)
-		args[i] = fields[col]
+		args = append(args, fields[col])
 	}
 	args = append(args, id)
 
-	sql := fmt.Sprintf("UPDATE %q SET %s WHERE %q = ?",
+	sql := fmt.Sprintf(
+		"UPDATE %q SET %s WHERE \"id\" = ?",
 		tableName,
 		strings.Join(setClauses, ", "),
-		"id",
 	)
 	return sql, args
 }
 
-// DeleteSQL renders a hard DELETE statement for SQLite.
-func (d *Dialect) DeleteSQL(tableName string, id string) (string, []any) {
-	return fmt.Sprintf("DELETE FROM %q WHERE %q = ?", tableName, "id"), []any{id}
+// DeleteSQL renders a hard DELETE statement.
+func (d *Dialect) DeleteSQL(tableName, id string) (string, []any) {
+	sql := fmt.Sprintf("DELETE FROM %q WHERE \"id\" = ?", tableName)
+	return sql, []any{id}
 }
 
-// FullTextSearch renders a basic LIKE-based full-text search for SQLite.
-// Soft-deleted records are automatically filtered out. See TAD §9.1.
-func (d *Dialect) FullTextSearch(tableName string, query string, fields []string) (string, []any) {
-	if len(fields) == 0 {
-		return fmt.Sprintf("SELECT %q FROM %q WHERE 1=0", "id", tableName), nil
-	}
+// FullTextSearch renders a full-text search query.
+// For SQLite, uses LIKE %query% across all searchable text columns as a lightweight MVP implementation.
+func (d *Dialect) FullTextSearch(tableName, query string, searchableFields []string) (string, []any) {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("SELECT \"id\" FROM %q WHERE (\"deleted\" = ? OR \"deleted\" IS NULL)", tableName))
 
-	conditions := make([]string, len(fields))
 	args := []any{false}
-	likeVal := "%" + query + "%"
-	for i, f := range fields {
-		conditions[i] = fmt.Sprintf("%q LIKE ?", f)
-		args = append(args, likeVal)
+	pattern := "%" + query + "%"
+
+	if len(searchableFields) > 0 {
+		conditions := make([]string, len(searchableFields))
+		for i, field := range searchableFields {
+			conditions[i] = fmt.Sprintf("%q LIKE ?", field)
+			args = append(args, pattern)
+		}
+		sb.WriteString(" AND (" + strings.Join(conditions, " OR ") + ")")
 	}
 
-	sql := fmt.Sprintf(`SELECT "id" FROM %q WHERE "deleted" = ? AND (%s)`,
-		tableName,
-		strings.Join(conditions, " OR "),
-	)
-	return sql, args
+	return sb.String(), args
 }
-
-// ----------------------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------------------
 
 func sqliteType(f schema.Field) string {
 	switch f.Type {
 	case schema.FieldTypeInt, schema.FieldTypeInt64:
 		return "INTEGER"
-	case schema.FieldTypeBool:
-		return "INTEGER" // 0/1
 	case schema.FieldTypeFloat64, schema.FieldTypeCurrency:
 		return "REAL"
+	case schema.FieldTypeBool:
+		return "INTEGER" // SQLite stores booleans as 0 or 1
 	case schema.FieldTypeDate, schema.FieldTypeDateTime:
-		return "TEXT"
-	case schema.FieldTypeJSON:
-		return "TEXT"
-	case schema.FieldTypeText, schema.FieldTypeRichText:
+		return "TEXT" // ISO-8601 strings
+	case schema.FieldTypeText, schema.FieldTypeRichText, schema.FieldTypeJSON:
 		return "TEXT"
 	default:
 		return "TEXT"
 	}
-}
-
-func formatValue(v any) any {
-	switch val := v.(type) {
-	case time.Time:
-		return val.UTC().Format(time.RFC3339Nano)
-	case bool:
-		if val {
-			return 1
-		}
-		return 0
-	}
-	return v
 }

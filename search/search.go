@@ -97,7 +97,7 @@ func (b *dialectBackend) Search(ctx context.Context, docType, query string, limi
 	if err != nil {
 		return nil, orjerrors.Internal("full-text search failed", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {
