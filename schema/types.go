@@ -112,6 +112,10 @@ type Meta struct {
 	Icon string
 	// Description is a human-readable summary surfaced in the UI and Metadata API.
 	Description string
+	// AgentHidden excludes the entire DocType from agent tool generation
+	// (TAD §10.1 — the schema-level agent_hidden flag, distinct from the
+	// per-field hidden/agent_hidden tags of PRD §10.4 / TAD §12.2).
+	AgentHidden bool
 	// TitleField is the expression (field name or "First + Last" style) that
 	// produces a human-readable record title in list views. See PRD §10.1.
 	TitleField string

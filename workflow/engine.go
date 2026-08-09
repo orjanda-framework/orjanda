@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,10 @@ type Engine interface {
 	Register(def Definition) error
 	AvailableTransitions(ctx context.Context, docType, currentState string) []Transition
 	Execute(ctx context.Context, docType, id, action string) error
+	// DocTypes lists every DocType with a registered workflow definition.
+	// Consumed by the agent ToolRegistry at compile time to emit exactly one
+	// execute_action_{doctype} tool per workflowed DocType (TAD §10.1 step 6).
+	DocTypes() []string
 }
 
 type engine struct {
@@ -105,6 +110,19 @@ func (e *engine) Register(def Definition) error {
 
 	e.definitions[def.DocType] = def
 	return nil
+}
+
+// DocTypes returns the sorted list of DocTypes with registered workflows,
+// used by the agent ToolRegistry at compile time (TAD §10.1 step 6).
+func (e *engine) DocTypes() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]string, 0, len(e.definitions))
+	for docType := range e.definitions {
+		out = append(out, docType)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (e *engine) AvailableTransitions(ctx context.Context, docType, currentState string) []Transition {

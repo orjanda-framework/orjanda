@@ -130,6 +130,7 @@ func (r *registry) Compile() error {
 			Submittable: meta.Submittable,
 			Icon:        meta.Icon,
 			Description: meta.Description,
+			AgentHidden: meta.AgentHidden,
 			TitleField:  meta.TitleField,
 			SortField:   meta.SortField,
 			SortOrder:   sortOrder,

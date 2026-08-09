@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/orjanda-framework/orjanda/agent/tools"
 	"github.com/orjanda-framework/orjanda/api"
 	"github.com/orjanda-framework/orjanda/app"
 	"github.com/orjanda-framework/orjanda/audit"
@@ -19,10 +20,12 @@ import (
 	"github.com/orjanda-framework/orjanda/event"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
+	"github.com/orjanda-framework/orjanda/workflow"
 )
 
 // Site is the central composition root wiring database, schema registry, permission engine,
-// event bus, audit log, cache, auth provider, document engine, and HTTP router. See TAD §12.4.
+// event bus, audit log, cache, auth provider, document engine, workflow engine, agent tool
+// registry, and HTTP router. See TAD §12.4.
 type Site struct {
 	Config      config.Config
 	Registry    schema.Registry
@@ -33,6 +36,8 @@ type Site struct {
 	Cache       cache.Store
 	Auth        auth.Provider
 	DocEngine   *document.Engine
+	Workflows   workflow.Engine
+	Tools       tools.ToolRegistry
 	Router      *chi.Mux
 	apps        []app.Definition
 }
@@ -105,6 +110,15 @@ func (s *Site) Compile() error {
 		s.EventBus,
 		s.AuditLog,
 	)
+
+	// Initialization steps 8–9 (TAD §5.2): workflow Engine (layer 6 services)
+	// then Agent Runtime init, which runs ToolRegistry.Compile immediately
+	// after Registry.Compile (TAD §3.1 step 5, §5.3).
+	s.Workflows = workflow.NewEngine(s.DB, s.Registry, s.Permissions, s.EventBus, s.AuditLog)
+	s.Tools = tools.NewToolRegistry(s.Permissions, s.Workflows)
+	if err := s.Tools.Compile(s.Registry); err != nil {
+		return err
+	}
 
 	s.Router = api.NewRouter(api.RouterOptions{
 		CORSOrigins:  s.Config.Server.CORSOrigins,

@@ -55,6 +55,19 @@ func GetMethod(name string) (RegisteredMethod, bool) {
 	return m, ok
 }
 
+// Methods returns a copy of every registered RPC method. Consumed by the
+// agent ToolRegistry at compile time to emit one tool per role-gated method
+// (TAD §10.1 step 8).
+func Methods() []RegisteredMethod {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]RegisteredMethod, 0, len(methods))
+	for _, m := range methods {
+		out = append(out, m)
+	}
+	return out
+}
+
 // ResetRegistry clears all registered RPC methods (useful for testing).
 func ResetRegistry() {
 	mu.Lock()

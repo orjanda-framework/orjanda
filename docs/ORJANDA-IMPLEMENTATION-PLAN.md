@@ -227,7 +227,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ---
 
-### Phase 7 — Agent Runtime: LLM Abstraction & Tool Generation
+### Phase 7 — Agent Runtime: LLM Abstraction & Tool Generation ✅ COMPLETE
 
 **Objective:** The Registry produces correct, permission-aware, per-identity tool definitions, and at least two LLM providers can consume them.
 
@@ -242,11 +242,11 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 6 (tool execution ultimately calls the same Document Engine/`perm.Engine` the API layer uses — this phase generates tool *definitions*; Phase 8 wires *execution*). Phase 1 (Registry) and Phase 4 (`perm.Engine.AllowedFields`) are the direct data sources.
 
 **Completion criteria:**
-- [ ] For the PRD §24.2 `Employee`/`salary` worked example, `ForIdentity` includes `salary` in `create_employee`'s schema for an `hr_manager`-role caller and omits the property entirely for a caller without that role.
-- [ ] Tool count for a 50-Document reference Registry is `O(len(CompiledDocs))`, not proportional to child-table struct count (TAD §10.1 step 7, directly asserted).
-- [ ] A workflowed DocType produces exactly one `execute_action_*` tool regardless of transition count.
-- [ ] Both OpenAI and Anthropic providers pass an identical contract test suite against `Provider` (tool-calling round trip, streaming, structured output where supported).
-- [ ] Provider failover triggers on a simulated 5xx from the primary provider and completes the request via the fallback (PRD §26.4).
+- [x] For the PRD §24.2 `Employee`/`salary` worked example, `ForIdentity` includes `salary` in `create_employee`'s schema for an `hr_manager`-role caller and omits the property entirely for a caller without that role.
+- [x] Tool count for a 50-Document reference Registry is `O(len(CompiledDocs))`, not proportional to child-table struct count (TAD §10.1 step 7, directly asserted).
+- [x] A workflowed DocType produces exactly one `execute_action_*` tool regardless of transition count.
+- [x] Both OpenAI and Anthropic providers pass an identical contract test suite against `Provider` (tool-calling round trip, streaming, structured output where supported).
+- [x] Provider failover triggers on a simulated 5xx from the primary provider and completes the request via the fallback (PRD §26.4).
 
 ---
 
