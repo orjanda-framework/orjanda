@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/orjanda-framework/orjanda/agent/runtime"
 	apimiddleware "github.com/orjanda-framework/orjanda/api/middleware"
 	"github.com/orjanda-framework/orjanda/api/rest"
 	"github.com/orjanda-framework/orjanda/api/rpc"
@@ -25,6 +26,10 @@ type RouterOptions struct {
 	PermEngine   perm.Engine
 	Registry     schema.Registry
 	DocEngine    *document.Engine
+	// AgentRuntime carries the shared runtime options for the agent chat
+	// WebSocket; when nil the /api/v1/agent/stream route is not mounted.
+	// Sink and Approvals are per-connection and need not be set here.
+	AgentRuntime *runtime.Options
 }
 
 // NewRouter constructs a Chi HTTP router with the middleware chain in PRD §12.2 order:
@@ -49,6 +54,11 @@ func NewRouter(opts RouterOptions) *chi.Mux {
 			r.Get("/meta", metaHandler.ListDocTypes)
 			r.Get("/meta/{doctype}", metaHandler.GetDocMeta)
 			r.Get("/meta/{doctype}/links", metaHandler.GetLinks)
+		}
+
+		// Agent Chat WebSocket (TAD §6.2, §12.3)
+		if opts.AgentRuntime != nil {
+			r.Get("/agent/stream", (&AgentHandler{Base: *opts.AgentRuntime}).Stream)
 		}
 
 		// RPC Custom Methods

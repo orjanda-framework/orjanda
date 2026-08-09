@@ -267,13 +267,13 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 7 (tool definitions and LLM providers must exist to drive a loop against them); Phase 6 (the Executor calls into the same Document Engine the API layer uses); Phase 2's `cache.Store` (rate limiting).
 
 **Completion criteria:**
-- [ ] PRD §38.1 (simple query) and §38.2 (multi-step with approval) worked examples pass end-to-end against a `MockLLM`-equivalent harness (full harness formalized in Phase 11; a minimal scripted double is acceptable here to unblock this phase).
-- [ ] A delete operation is *always* gated by approval regardless of `SafetyPolicy` configuration (TAD §12.1 step 1, cannot be overridden by config in a test that tries).
-- [ ] A bulk operation exceeding `MaxBulkOperations` requires approval even when its verb is in `AutoApprove` (TAD §12.1 step 2).
-- [ ] An idle session's first LLM call includes only the fixed discovery tool set (TAD §11.1, tool-count assertion) — session tool count grows only after a `describe_document` or prior tool call references a DocType.
-- [ ] An invalid `Plan` (bad step 3) executes **zero** side effects — steps 1–2 are not run before validation fails (TAD §11.3).
-- [ ] Every agent-initiated write is flagged `via_agent=true` in the audit log; every human-initiated write (via Phase 6's API layer) is `via_agent=false`. No code path can mismark either direction.
-- [ ] A user attempting an operation their role forbids receives a `PermissionDenied` error surfaced to the agent (not silently retried or hidden from the LLM) — mirrors PRD §25.2 exactly.
+- [x] PRD §38.1 (simple query) and §38.2 (multi-step with approval) worked examples pass end-to-end against a `MockLLM`-equivalent harness (full harness formalized in Phase 11; a minimal scripted double is acceptable here to unblock this phase).
+- [x] A delete operation is *always* gated by approval regardless of `SafetyPolicy` configuration (TAD §12.1 step 1, cannot be overridden by config in a test that tries).
+- [x] A bulk operation exceeding `MaxBulkOperations` requires approval even when its verb is in `AutoApprove` (TAD §12.1 step 2).
+- [x] An idle session's first LLM call includes only the fixed discovery tool set (TAD §11.1, tool-count assertion) — session tool count grows only after a `describe_document` or prior tool call references a DocType.
+- [x] An invalid `Plan` (bad step 3) executes **zero** side effects — steps 1–2 are not run before validation fails (TAD §11.3).
+- [x] Every agent-initiated write is flagged `via_agent=true` in the audit log; every human-initiated write (via Phase 6's API layer) is `via_agent=false`. No code path can mismark either direction.
+- [x] A user attempting an operation their role forbids receives a `PermissionDenied` error surfaced to the agent (not silently retried or hidden from the LLM) — mirrors PRD §25.2 exactly.
 
 ---
 
