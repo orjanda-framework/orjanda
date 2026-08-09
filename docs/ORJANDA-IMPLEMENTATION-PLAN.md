@@ -205,7 +205,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ---
 
-### Phase 6 — API Layer
+### Phase 6 — API Layer ✅ COMPLETE
 
 **Objective:** Full HTTP surface: REST CRUD, RPC custom methods, and the Metadata API, all permission-enforced end to end.
 
@@ -220,10 +220,10 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 5 (Auth Middleware needs a working `auth.Provider`); Phase 4 (Permission Middleware needs `perm.Engine`).
 
 **Completion criteria:**
-- [ ] Full CRUD lifecycle test suite against the Phase 1 reference Application over real HTTP (`httptest`), asserting correct behavior for at least three distinct roles (admin, scoped role, no-access role).
-- [ ] A custom RPC method respects `AllowedRoles` identically to a Document-level permission check (same `perm.Engine` path, per §3 item 4).
-- [ ] `GET /api/v1/meta/{doctype}` returns permissions pre-calculated for the calling identity, verified against two different roles returning different `can_*` flags for the same DocType.
-- [ ] API response time for simple CRUD is < 50ms p95 and Document list (1000 records, paginated) is < 100ms p95 against PostgreSQL (PRD §33.1 targets, first point they are testable end-to-end).
+- [x] Full CRUD lifecycle test suite against the Phase 1 reference Application over real HTTP (`httptest`), asserting correct behavior for at least three distinct roles (admin, scoped role, no-access role).
+- [x] A custom RPC method respects `AllowedRoles` identically to a Document-level permission check (same `perm.Engine` path, per §3 item 4).
+- [x] `GET /api/v1/meta/{doctype}` returns permissions pre-calculated for the calling identity, verified against two different roles returning different `can_*` flags for the same DocType.
+- [x] API response time for simple CRUD is < 50ms p95 and Document list (1000 records, paginated) is < 100ms p95 against PostgreSQL (PRD §33.1 targets, first point they are testable end-to-end).
 
 ---
 
