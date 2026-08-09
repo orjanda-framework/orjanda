@@ -1,0 +1,42 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck        # unchecked errors
+    - gosimple        # simplification suggestions
+    - govet           # go vet checks
+    - ineffassign     # assignments that have no effect
+    - staticcheck     # staticcheck analysis suite
+    - unused          # unused code
+    - gofmt           # formatting (fail on unformatted code)
+    - gocritic        # additional checks
+    - misspell        # spelling in comments/strings
+    - revive          # fast, configurable linter (replaces golint)
+    - noctx           # http requests without context
+    - bodyclose       # http response body not closed
+
+linters-settings:
+  revive:
+    rules:
+      # Enforce package-level doc comments on all packages (AGENTS.md §6).
+      - name: package-comments
+        severity: warning
+      # Error return values must not be silently ignored.
+      - name: unhandled-error
+        severity: error
+        disabled: true  # covered by errcheck
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+
+issues:
+  # Exclude test files from some linters to reduce noise.
+  exclude-rules:
+    - path: "_test\\.go"
+      linters:
+        - gocritic
+        - revive

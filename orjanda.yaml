@@ -1,0 +1,30 @@
+# orjanda.yaml — Example / reference configuration file
+# See TAD §1.3 for the authoritative schema.
+# Environment variables with the ORJANDA_ prefix override any value here.
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+  cors_origins: ["*"]
+
+database:
+  driver: "postgres" # postgres | sqlite
+  dsn: "postgres://user:pass@localhost:5432/orjanda?sslmode=disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+
+llm:
+  default_provider: "openai"
+  providers:
+    openai:
+      # Set via env: ORJANDA_OPENAI_API_KEY
+      api_key: ${ORJANDA_OPENAI_API_KEY}
+      model: "gpt-4o"
+      max_tokens: 4096
+    anthropic:
+      # Set via env: ORJANDA_ANTHROPIC_API_KEY
+      api_key: ${ORJANDA_ANTHROPIC_API_KEY}
+      model: "claude-3-5-sonnet-20240620"
+      max_tokens: 4096
+  safety:
+    max_bulk_operations: 5
