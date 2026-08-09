@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	// Register the pgx stdlib driver.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -15,9 +16,10 @@ import (
 
 // DB wraps *sql.DB and implements dal.Database for PostgreSQL.
 type DB struct {
-	db         *sql.DB
-	dialect    *Dialect
-	tableNames map[string]string
+	db           *sql.DB
+	dialect      *Dialect
+	tableNames   map[string]string
+	compiledDocs map[string]*schema.CompiledDoc
 }
 
 // Open opens a PostgreSQL database at the given DSN (postgres:// URL).
@@ -30,7 +32,12 @@ func Open(dsn string) (*DB, error) {
 		db.Close()
 		return nil, orjerrors.Internal("failed to ping postgres database", err)
 	}
-	return &DB{db: db, dialect: New(), tableNames: make(map[string]string)}, nil
+	return &DB{
+		db:           db,
+		dialect:      New(),
+		tableNames:   make(map[string]string),
+		compiledDocs: make(map[string]*schema.CompiledDoc),
+	}, nil
 }
 
 // RegisterDoc registers a docType→tableName mapping.
@@ -42,6 +49,7 @@ func (d *DB) RegisterDoc(docType, tableName string) {
 func (d *DB) RegisterDocs(docs []*schema.CompiledDoc) {
 	for _, doc := range docs {
 		d.tableNames[doc.Name] = doc.TableName
+		d.compiledDocs[doc.Name] = doc
 	}
 }
 
@@ -53,7 +61,9 @@ func (d *DB) Close() error { return d.db.Close() }
 
 // Query executes a Select and returns rows as maps.
 func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) {
-	if q.TableName == "" {
+	if doc, ok := d.compiledDocs[q.DocType]; ok {
+		q = resolveSelect(doc, q)
+	} else if q.TableName == "" {
 		tn, ok := d.tableNames[q.DocType]
 		if !ok {
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
@@ -69,15 +79,24 @@ func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) 
 	return scanRows(rows)
 }
 
-// Insert writes a new record and returns the generated ULID.
+// Insert writes a new record and returns the generated or provided ULID.
 func (d *DB) Insert(ctx context.Context, docType string, data map[string]any) (string, error) {
 	tn, ok := d.tableNames[docType]
 	if !ok {
 		return "", orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
 	}
-	id := ulid.Make().String()
-	data["id"] = id
-	sqlStr, args := d.dialect.InsertSQL(tn, data)
+	id, ok := data["id"].(string)
+	if !ok || id == "" {
+		id = ulid.Make().String()
+	}
+
+	dataCopy := make(map[string]any, len(data)+1)
+	for k, v := range data {
+		dataCopy[k] = v
+	}
+	dataCopy["id"] = id
+
+	sqlStr, args := d.dialect.InsertSQL(tn, dataCopy)
 	if _, err := d.db.ExecContext(ctx, sqlStr, args...); err != nil {
 		return "", orjerrors.Internal("insert failed", err)
 	}
@@ -126,7 +145,12 @@ func (d *DB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
 	if err != nil {
 		return orjerrors.Internal("failed to begin transaction", err)
 	}
-	t := &txDB{tx: tx, dialect: d.dialect, tableNames: d.tableNames}
+	t := &txDB{
+		tx:           tx,
+		dialect:      d.dialect,
+		tableNames:   d.tableNames,
+		compiledDocs: d.compiledDocs,
+	}
 	if err := fn(t); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -162,7 +186,7 @@ func (d *DB) CreateTables(docs []*schema.CompiledDoc) error {
 func (d *DB) ExistingTables() (map[string]bool, error) {
 	rows, err := d.db.Query(`
 		SELECT table_name FROM information_schema.tables
-		WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`)
+		WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name NOT LIKE 'goose_%'`)
 	if err != nil {
 		return nil, orjerrors.Internal("failed to list tables", err)
 	}
@@ -198,7 +222,7 @@ func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
 	return cols, rows.Err()
 }
 
-// Underlying returns the raw *sql.DB (used by Goose).
+// Underlying returns the raw *sql.DB.
 func (d *DB) Underlying() *sql.DB { return d.db }
 
 // ----------------------------------------------------------------------------
@@ -206,15 +230,20 @@ func (d *DB) Underlying() *sql.DB { return d.db }
 // ----------------------------------------------------------------------------
 
 type txDB struct {
-	tx         *sql.Tx
-	dialect    *Dialect
-	tableNames map[string]string
+	tx           *sql.Tx
+	dialect      *Dialect
+	tableNames   map[string]string
+	compiledDocs map[string]*schema.CompiledDoc
 }
+
+func (t *txDB) Dialect() dal.Dialect { return t.dialect }
 
 func (t *txDB) Close() error { return nil }
 
 func (t *txDB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) {
-	if q.TableName == "" {
+	if doc, ok := t.compiledDocs[q.DocType]; ok {
+		q = resolveSelect(doc, q)
+	} else if q.TableName == "" {
 		tn, ok := t.tableNames[q.DocType]
 		if !ok {
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
@@ -235,9 +264,18 @@ func (t *txDB) Insert(ctx context.Context, docType string, data map[string]any) 
 	if !ok {
 		return "", orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
 	}
-	id := ulid.Make().String()
-	data["id"] = id
-	sqlStr, args := t.dialect.InsertSQL(tn, data)
+	id, ok := data["id"].(string)
+	if !ok || id == "" {
+		id = ulid.Make().String()
+	}
+
+	dataCopy := make(map[string]any, len(data)+1)
+	for k, v := range data {
+		dataCopy[k] = v
+	}
+	dataCopy["id"] = id
+
+	sqlStr, args := t.dialect.InsertSQL(tn, dataCopy)
 	if _, err := t.tx.ExecContext(ctx, sqlStr, args...); err != nil {
 		return "", orjerrors.Internal("insert failed", err)
 	}
@@ -279,7 +317,6 @@ func (t *txDB) Delete(ctx context.Context, docType string, id string) error {
 }
 
 func (t *txDB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
-	// Nested: re-use same transaction (savepoints are post-MVP).
 	return fn(t)
 }
 
@@ -291,6 +328,46 @@ func (t *txDB) Rollback() error { return t.tx.Rollback() }
 // ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
+
+func resolveSelect(doc *schema.CompiledDoc, q dal.Select) dal.Select {
+	res := q
+	if res.TableName == "" {
+		res.TableName = doc.TableName
+	}
+	if len(q.Fields) > 0 {
+		resFields := make([]string, 0, len(q.Fields))
+		for _, f := range q.Fields {
+			resFields = append(resFields, resolveField(doc, f))
+		}
+		res.Fields = resFields
+	}
+	if len(q.Filters) > 0 {
+		resFilters := make(map[string]any, len(q.Filters))
+		for k, v := range q.Filters {
+			resFilters[resolveField(doc, k)] = v
+		}
+		res.Filters = resFilters
+	}
+	if q.OrderBy != "" {
+		parts := strings.Split(q.OrderBy, " ")
+		colName := parts[0]
+		dir := ""
+		if len(parts) > 1 {
+			dir = " " + parts[1]
+		}
+		res.OrderBy = resolveField(doc, colName) + dir
+	}
+	return res
+}
+
+func resolveField(doc *schema.CompiledDoc, name string) string {
+	for _, f := range doc.Fields {
+		if f.Name == name || f.DBColumn == name {
+			return f.DBColumn
+		}
+	}
+	return name
+}
 
 func scanRows(rows *sql.Rows) ([]map[string]any, error) {
 	cols, err := rows.Columns()

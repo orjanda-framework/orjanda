@@ -27,7 +27,6 @@ func (d *Dialect) DriverName() string { return "pgx" }
 func (d *Dialect) Placeholder(n int) string { return fmt.Sprintf("$%d", n) }
 
 // CreateTable generates CREATE TABLE SQL for the given CompiledDoc.
-// Uses PostgreSQL type names and IF NOT EXISTS for idempotent migrations.
 func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %q (\n", doc.TableName))
@@ -79,7 +78,6 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 	var sb strings.Builder
 	var args []any
 
-	// Column list
 	cols := "*"
 	if len(q.Fields) > 0 {
 		quoted := make([]string, len(q.Fields))
@@ -90,7 +88,6 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 	}
 	sb.WriteString(fmt.Sprintf("SELECT %s FROM %q", cols, q.TableName))
 
-	// WHERE clause
 	n := 1
 	conditions := make([]string, 0)
 	if !q.IncludeDeleted {
@@ -99,7 +96,6 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		n++
 	}
 
-	// Sort keys for determinism
 	keys := make([]string, 0, len(q.Filters))
 	for k := range q.Filters {
 		keys = append(keys, k)
@@ -116,7 +112,13 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 	}
 
 	if q.OrderBy != "" {
-		sb.WriteString(fmt.Sprintf(" ORDER BY %q", q.OrderBy))
+		parts := strings.Split(q.OrderBy, " ")
+		col := parts[0]
+		dir := ""
+		if len(parts) > 1 {
+			dir = " " + parts[1]
+		}
+		sb.WriteString(fmt.Sprintf(" ORDER BY %q%s", col, dir))
 	}
 	if q.Limit > 0 {
 		sb.WriteString(fmt.Sprintf(" LIMIT %d", q.Limit))
@@ -186,21 +188,19 @@ func (d *Dialect) DeleteSQL(tableName string, id string) (string, []any) {
 	return fmt.Sprintf("DELETE FROM %q WHERE %q = $1", tableName, "id"), []any{id}
 }
 
-// FullTextSearch renders a PostgreSQL tsvector-based FTS query.
-// Returns the SQL and args for a query that returns matching IDs.
+// FullTextSearch renders a PostgreSQL tsvector-based FTS query excluding soft-deleted records.
 func (d *Dialect) FullTextSearch(tableName string, query string, fields []string) (string, []any) {
 	if len(fields) == 0 {
 		return fmt.Sprintf("SELECT %q FROM %q WHERE FALSE", "id", tableName), nil
 	}
 
-	// Concatenate tsvector expressions for all searchable fields.
 	tsVectors := make([]string, len(fields))
 	for i, f := range fields {
 		tsVectors[i] = fmt.Sprintf("to_tsvector('english', COALESCE(%q::text, ''))", f)
 	}
 	combined := strings.Join(tsVectors, " || ")
 
-	sql := fmt.Sprintf(`SELECT "id" FROM %q WHERE (%s) @@ plainto_tsquery('english', $1)`,
+	sql := fmt.Sprintf(`SELECT "id" FROM %q WHERE "deleted" = FALSE AND ((%s) @@ plainto_tsquery('english', $1))`,
 		tableName, combined)
 	return sql, []any{query}
 }
@@ -209,7 +209,6 @@ func (d *Dialect) FullTextSearch(tableName string, query string, fields []string
 // Helpers
 // ----------------------------------------------------------------------------
 
-// pgType maps a schema.Field to a PostgreSQL column type.
 func pgType(f schema.Field) string {
 	switch f.Type {
 	case schema.FieldTypeInt:

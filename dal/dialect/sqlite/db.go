@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 
 	// Register the modernc SQLite driver.
 	_ "modernc.org/sqlite"
@@ -17,14 +18,13 @@ import (
 
 // DB wraps *sql.DB and implements dal.Database for SQLite.
 type DB struct {
-	db      *sql.DB
-	dialect *Dialect
-	// tableNames maps docType → tableName, populated from CompiledDocs.
-	tableNames map[string]string
+	db           *sql.DB
+	dialect      *Dialect
+	tableNames   map[string]string
+	compiledDocs map[string]*schema.CompiledDoc
 }
 
 // Open opens a SQLite database at the given DSN (file path or ":memory:").
-// The returned *DB implements dal.Database.
 func Open(dsn string) (*DB, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -40,11 +40,15 @@ func Open(dsn string) (*DB, error) {
 		db.Close()
 		return nil, orjerrors.Internal("failed to enable foreign keys", err)
 	}
-	return &DB{db: db, dialect: New(), tableNames: make(map[string]string)}, nil
+	return &DB{
+		db:           db,
+		dialect:      New(),
+		tableNames:   make(map[string]string),
+		compiledDocs: make(map[string]*schema.CompiledDoc),
+	}, nil
 }
 
-// RegisterDoc registers a docType→tableName mapping so the DB can resolve
-// table names from docType strings. Called once during site init.
+// RegisterDoc registers a docType→tableName mapping.
 func (d *DB) RegisterDoc(docType, tableName string) {
 	d.tableNames[docType] = tableName
 }
@@ -53,6 +57,7 @@ func (d *DB) RegisterDoc(docType, tableName string) {
 func (d *DB) RegisterDocs(docs []*schema.CompiledDoc) {
 	for _, doc := range docs {
 		d.tableNames[doc.Name] = doc.TableName
+		d.compiledDocs[doc.Name] = doc
 	}
 }
 
@@ -64,7 +69,9 @@ func (d *DB) Close() error { return d.db.Close() }
 
 // Query executes a Select and returns rows as maps.
 func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) {
-	if q.TableName == "" {
+	if doc, ok := d.compiledDocs[q.DocType]; ok {
+		q = resolveSelect(doc, q)
+	} else if q.TableName == "" {
 		tn, ok := d.tableNames[q.DocType]
 		if !ok {
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
@@ -72,7 +79,6 @@ func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) 
 		q.TableName = tn
 	}
 	sqlStr, args := d.dialect.SelectSQL(q)
-	// convert booleans for sqlite
 	for i, a := range args {
 		args[i] = formatValue(a)
 	}
@@ -84,18 +90,25 @@ func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) 
 	return scanRows(rows)
 }
 
-// Insert writes a new record and returns the generated ULID.
+// Insert writes a new record and returns the generated or provided ULID.
 func (d *DB) Insert(ctx context.Context, docType string, data map[string]any) (string, error) {
 	tn, ok := d.tableNames[docType]
 	if !ok {
 		return "", orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
 	}
-	id := ulid.Make().String()
-	data["id"] = id
+	id, ok := data["id"].(string)
+	if !ok || id == "" {
+		id = ulid.Make().String()
+	}
 
-	// Convert booleans to integers for SQLite
-	converted := make(map[string]any, len(data))
+	dataCopy := make(map[string]any, len(data)+1)
 	for k, v := range data {
+		dataCopy[k] = v
+	}
+	dataCopy["id"] = id
+
+	converted := make(map[string]any, len(dataCopy))
+	for k, v := range dataCopy {
 		converted[k] = formatValue(v)
 	}
 
@@ -152,7 +165,12 @@ func (d *DB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
 	if err != nil {
 		return orjerrors.Internal("failed to begin transaction", err)
 	}
-	t := &txDB{tx: tx, dialect: d.dialect, tableNames: d.tableNames}
+	t := &txDB{
+		tx:           tx,
+		dialect:      d.dialect,
+		tableNames:   d.tableNames,
+		compiledDocs: d.compiledDocs,
+	}
 	if err := fn(t); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -168,17 +186,20 @@ func (d *DB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
 // ----------------------------------------------------------------------------
 
 type txDB struct {
-	tx         *sql.Tx
-	dialect    *Dialect
-	tableNames map[string]string
+	tx           *sql.Tx
+	dialect      *Dialect
+	tableNames   map[string]string
+	compiledDocs map[string]*schema.CompiledDoc
 }
 
 func (t *txDB) Dialect() dal.Dialect { return t.dialect }
 
-func (t *txDB) Close() error { return nil } // no-op inside a transaction
+func (t *txDB) Close() error { return nil }
 
 func (t *txDB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) {
-	if q.TableName == "" {
+	if doc, ok := t.compiledDocs[q.DocType]; ok {
+		q = resolveSelect(doc, q)
+	} else if q.TableName == "" {
 		tn, ok := t.tableNames[q.DocType]
 		if !ok {
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
@@ -202,10 +223,19 @@ func (t *txDB) Insert(ctx context.Context, docType string, data map[string]any) 
 	if !ok {
 		return "", orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", docType))
 	}
-	id := ulid.Make().String()
-	data["id"] = id
-	converted := make(map[string]any, len(data))
+	id, ok := data["id"].(string)
+	if !ok || id == "" {
+		id = ulid.Make().String()
+	}
+
+	dataCopy := make(map[string]any, len(data)+1)
 	for k, v := range data {
+		dataCopy[k] = v
+	}
+	dataCopy["id"] = id
+
+	converted := make(map[string]any, len(dataCopy))
+	for k, v := range dataCopy {
 		converted[k] = formatValue(v)
 	}
 	sqlStr, args := t.dialect.InsertSQL(tn, converted)
@@ -254,8 +284,6 @@ func (t *txDB) Delete(ctx context.Context, docType string, id string) error {
 }
 
 func (t *txDB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
-	// Nested transactions in SQLite are represented by savepoints; for MVP
-	// we simply re-use the same transaction (no savepoints).
 	return fn(t)
 }
 
@@ -269,6 +297,46 @@ func (t *txDB) Rollback() error {
 // ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
+
+func resolveSelect(doc *schema.CompiledDoc, q dal.Select) dal.Select {
+	res := q
+	if res.TableName == "" {
+		res.TableName = doc.TableName
+	}
+	if len(q.Fields) > 0 {
+		resFields := make([]string, 0, len(q.Fields))
+		for _, f := range q.Fields {
+			resFields = append(resFields, resolveField(doc, f))
+		}
+		res.Fields = resFields
+	}
+	if len(q.Filters) > 0 {
+		resFilters := make(map[string]any, len(q.Filters))
+		for k, v := range q.Filters {
+			resFilters[resolveField(doc, k)] = v
+		}
+		res.Filters = resFilters
+	}
+	if q.OrderBy != "" {
+		parts := strings.Split(q.OrderBy, " ")
+		colName := parts[0]
+		dir := ""
+		if len(parts) > 1 {
+			dir = " " + parts[1]
+		}
+		res.OrderBy = resolveField(doc, colName) + dir
+	}
+	return res
+}
+
+func resolveField(doc *schema.CompiledDoc, name string) string {
+	for _, f := range doc.Fields {
+		if f.Name == name || f.DBColumn == name {
+			return f.DBColumn
+		}
+	}
+	return name
+}
 
 func scanRows(rows *sql.Rows) ([]map[string]any, error) {
 	cols, err := rows.Columns()
@@ -289,7 +357,6 @@ func scanRows(rows *sql.Rows) ([]map[string]any, error) {
 		row := make(map[string]any, len(cols))
 		for i, col := range cols {
 			v := vals[i]
-			// Normalise []byte → string
 			if b, ok := v.([]byte); ok {
 				v = string(b)
 			}
@@ -310,7 +377,6 @@ func (d *DB) CreateTables(docs []*schema.CompiledDoc) error {
 		if _, err := d.db.Exec(ddl); err != nil {
 			return orjerrors.Internal(fmt.Sprintf("create table %q failed", doc.TableName), err)
 		}
-		// Create child tables
 		for _, child := range doc.ChildTables {
 			childDoc := schema.CompiledDoc{
 				TableName: child.DocType + "s",
@@ -352,7 +418,6 @@ func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
 	defer rows.Close()
 	cols := make(map[string]bool)
 	for rows.Next() {
-		// cid, name, type, notnull, dflt_value, pk
 		var cid int
 		var name, typ string
 		var notnull int
@@ -366,10 +431,9 @@ func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
 	return cols, rows.Err()
 }
 
-// Underlying returns the raw *sql.DB (used by Migrator / Goose).
+// Underlying returns the raw *sql.DB.
 func (d *DB) Underlying() *sql.DB { return d.db }
 
-// sortedKeys returns map keys in sorted order (for deterministic SQL).
 func sortedKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

@@ -27,7 +27,6 @@ func (d *Dialect) DriverName() string { return "sqlite" }
 func (d *Dialect) Placeholder(_ int) string { return "?" }
 
 // CreateTable generates CREATE TABLE SQL for the given CompiledDoc.
-// Uses SQLite type affinity rules. See TAD §2.3 and PRD §13.3.
 func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %q (\n", doc.TableName))
@@ -52,9 +51,7 @@ func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	return sb.String()
 }
 
-// AlterTable generates ALTER TABLE SQL for column additions.
-// SQLite does not support DROP COLUMN natively before 3.35.0; handled as
-// a comment. Column type alterations are similarly limited in SQLite.
+// AlterTable generates ALTER TABLE SQL for column additions and drops.
 func (d *Dialect) AlterTable(diff schema.TableAlteration) []string {
 	stmts := make([]string, 0)
 	for _, f := range diff.AddColumns {
@@ -68,7 +65,6 @@ func (d *Dialect) AlterTable(diff schema.TableAlteration) []string {
 		stmts = append(stmts, col)
 	}
 	for _, col := range diff.DropColumns {
-		// SQLite 3.35+ supports DROP COLUMN; generate it and let the caller decide.
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %q DROP COLUMN %q", diff.TableName, col))
 	}
 	return stmts
@@ -79,7 +75,6 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 	var sb strings.Builder
 	var args []any
 
-	// Build column list
 	cols := "*"
 	if len(q.Fields) > 0 {
 		quoted := make([]string, len(q.Fields))
@@ -90,14 +85,12 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 	}
 	sb.WriteString(fmt.Sprintf("SELECT %s FROM %q", cols, q.TableName))
 
-	// WHERE clause
 	conditions := make([]string, 0)
 	if !q.IncludeDeleted {
 		conditions = append(conditions, `"deleted" = ?`)
 		args = append(args, false)
 	}
 
-	// Sort filter keys for deterministic SQL (important for snapshot tests)
 	keys := make([]string, 0, len(q.Filters))
 	for k := range q.Filters {
 		keys = append(keys, k)
@@ -113,7 +106,13 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 	}
 
 	if q.OrderBy != "" {
-		sb.WriteString(fmt.Sprintf(" ORDER BY %q", q.OrderBy))
+		parts := strings.Split(q.OrderBy, " ")
+		col := parts[0]
+		dir := ""
+		if len(parts) > 1 {
+			dir = " " + parts[1]
+		}
+		sb.WriteString(fmt.Sprintf(" ORDER BY %q%s", col, dir))
 	}
 	if q.Limit > 0 {
 		sb.WriteString(fmt.Sprintf(" LIMIT %d", q.Limit))
@@ -183,22 +182,21 @@ func (d *Dialect) DeleteSQL(tableName string, id string) (string, []any) {
 }
 
 // FullTextSearch renders a basic LIKE-based full-text search for SQLite.
-// SQLite FTS5 is available but requires explicit virtual table creation;
-// for MVP the default adapter uses LIKE predicates. See TAD §9.1.
+// Soft-deleted records are automatically filtered out. See TAD §9.1.
 func (d *Dialect) FullTextSearch(tableName string, query string, fields []string) (string, []any) {
 	if len(fields) == 0 {
 		return fmt.Sprintf("SELECT %q FROM %q WHERE 1=0", "id", tableName), nil
 	}
 
 	conditions := make([]string, len(fields))
-	args := make([]any, len(fields))
+	args := []any{false}
 	likeVal := "%" + query + "%"
 	for i, f := range fields {
 		conditions[i] = fmt.Sprintf("%q LIKE ?", f)
-		args[i] = likeVal
+		args = append(args, likeVal)
 	}
 
-	sql := fmt.Sprintf(`SELECT "id" FROM %q WHERE %s`,
+	sql := fmt.Sprintf(`SELECT "id" FROM %q WHERE "deleted" = ? AND (%s)`,
 		tableName,
 		strings.Join(conditions, " OR "),
 	)
@@ -209,7 +207,6 @@ func (d *Dialect) FullTextSearch(tableName string, query string, fields []string
 // Helpers
 // ----------------------------------------------------------------------------
 
-// sqliteType maps a schema.Field to a SQLite type affinity string.
 func sqliteType(f schema.Field) string {
 	switch f.Type {
 	case schema.FieldTypeInt, schema.FieldTypeInt64:
@@ -219,7 +216,7 @@ func sqliteType(f schema.Field) string {
 	case schema.FieldTypeFloat64, schema.FieldTypeCurrency:
 		return "REAL"
 	case schema.FieldTypeDate, schema.FieldTypeDateTime:
-		return "TEXT" // ISO-8601
+		return "TEXT"
 	case schema.FieldTypeJSON:
 		return "TEXT"
 	case schema.FieldTypeText, schema.FieldTypeRichText:
@@ -229,7 +226,6 @@ func sqliteType(f schema.Field) string {
 	}
 }
 
-// formatValue converts Go values to SQLite-compatible types for storage.
 func formatValue(v any) any {
 	switch val := v.(type) {
 	case time.Time:

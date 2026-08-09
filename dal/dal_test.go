@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/orjanda-framework/orjanda/dal"
+	"github.com/orjanda-framework/orjanda/dal/dialect/postgres"
 	"github.com/orjanda-framework/orjanda/dal/dialect/sqlite"
 	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/schema"
@@ -186,8 +187,8 @@ func TestMigratorWrite_DestructiveGate(t *testing.T) {
 
 func TestDialectSQLSemantics_SnapshotEquivalence(t *testing.T) {
 	sqld := sqlite.New()
-	// PostgreSQL placeholder uses $N; SQLite uses ?.
-	// The WHERE clause semantics must be logically identical.
+	pgd := postgres.New()
+
 	q := dal.Select{
 		TableName: "employees",
 		Fields:    []string{"id", "name"},
@@ -198,23 +199,13 @@ func TestDialectSQLSemantics_SnapshotEquivalence(t *testing.T) {
 	}
 
 	sqliteSql, sqliteArgs := sqld.SelectSQL(q)
-	assert.Contains(t, sqliteSql, "WHERE", "SQLite SELECT should have WHERE clause")
-	assert.Contains(t, sqliteSql, `"deleted"`, "SQLite SELECT should filter deleted")
-	assert.Contains(t, sqliteSql, `"department"`, "SQLite SELECT should include department filter")
-	assert.Contains(t, sqliteSql, "LIMIT 10")
-	assert.Contains(t, sqliteSql, `ORDER BY`)
-	assert.Len(t, sqliteArgs, 2, "SQLite SELECT should have 2 args (deleted + department)")
+	pgSql, pgArgs := pgd.SelectSQL(q)
 
-	// Import postgres dialect for comparison
-	// We test structural equivalence: both have WHERE, same number of args, LIMIT, ORDER BY
-	// (Postgres uses $1/$2 instead of ?)
-	t.Logf("SQLite SQL: %s", sqliteSql)
-	t.Logf("SQLite args: %v", sqliteArgs)
+	assert.Contains(t, sqliteSql, "SELECT \"id\", \"name\" FROM \"employees\" WHERE \"deleted\" = ? AND \"department\" = ? ORDER BY \"name\" LIMIT 10")
+	assert.Equal(t, []any{false, "Engineering"}, sqliteArgs)
 
-	// Verify that both dialects produce a WHERE clause with identical logical conditions.
-	// SQLite uses '?', Postgres uses '$N' — so we check arg counts and structural markers.
-	assert.Equal(t, 2, len(sqliteArgs),
-		"both dialects should bind (deleted + department) = 2 args")
+	assert.Contains(t, pgSql, "SELECT \"id\", \"name\" FROM \"employees\" WHERE \"deleted\" = $1 AND \"department\" = $2 ORDER BY \"name\" LIMIT 10")
+	assert.Equal(t, []any{false, "Engineering"}, pgArgs)
 }
 
 // ─────────────────────────────────────────────
@@ -493,3 +484,61 @@ func TestMigratorWrite_ContainsGooseMarkers(t *testing.T) {
 	assert.True(t, strings.HasSuffix(filename, "_sqlite.sql"),
 		"filename should end with _sqlite.sql, got: "+filename)
 }
+
+func TestMigrateUp_MultiDialectFileIsolation(t *testing.T) {
+	reg := compileRegistry(t)
+	db, err := sqlite.Open(":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+
+	dir := t.TempDir()
+
+	// Write a sqlite migration file
+	sqlm := dal.NewMigratorWithInspector(sqlite.New(), db.Underlying(), db)
+	diff, err := sqlm.Diff(context.Background(), reg)
+	require.NoError(t, err)
+	sqlFile, err := sqlm.Write(diff, dir, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, sqlFile)
+
+	// Write a postgres migration file with Postgres-only DDL syntax (e.g. JSONB)
+	pgFile := filepath.Join(dir, "20260809150000_invalid_postgres.sql")
+	err = os.WriteFile(pgFile, []byte("-- +goose Up\nCREATE TABLE pg_only (data JSONB);\n-- +goose Down\n"), 0644)
+	require.NoError(t, err)
+
+	// Up on SQLite should skip the _postgres.sql file and succeed cleanly
+	err = sqlm.Up(context.Background(), dir)
+	require.NoError(t, err, "Up on SQLite must ignore postgres-specific migration files")
+}
+
+func TestSQLiteDB_FieldResolutionAndIDPreservation(t *testing.T) {
+	reg := compileRegistry(t)
+	db := newTestSQLiteDB(t, reg)
+	ctx := context.Background()
+
+	customID := "01H1234567890ABCDEF1234567"
+	data := map[string]any{
+		"id":         customID,
+		"title":      "Pre-assigned ID Test",
+		"email":      "assigned@example.com",
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+		"deleted":    false,
+	}
+
+	id, err := db.Insert(ctx, "TestDoc", data)
+	require.NoError(t, err)
+	assert.Equal(t, customID, id, "Insert must preserve user-provided ID")
+	assert.Equal(t, customID, data["id"], "caller data map must not be corrupted")
+
+	// Query by Go field name "Title" instead of column name "title"
+	rows, err := db.Query(ctx, dal.Select{
+		DocType: "TestDoc",
+		Fields:  []string{"Title", "Email"},
+		Filters: map[string]any{"Title": "Pre-assigned ID Test"},
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "Pre-assigned ID Test", rows[0]["title"])
+}
+
