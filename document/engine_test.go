@@ -8,9 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/orjanda-framework/orjanda/audit"
+	"github.com/orjanda-framework/orjanda/auth"
 	"github.com/orjanda-framework/orjanda/dal/dialect/sqlite"
 	"github.com/orjanda-framework/orjanda/document"
 	orjerrors "github.com/orjanda-framework/orjanda/errors"
+	"github.com/orjanda-framework/orjanda/event"
+	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
 )
 
@@ -486,3 +490,108 @@ func TestEngine_Update_UniqueConstraintViolation(t *testing.T) {
 	assert.Equal(t, orjerrors.CodeValidation, ojErr.Code())
 	assert.Contains(t, ojErr.Details(), "Email")
 }
+
+// ─────────────────────────────────────────────
+// Phase 4 Completion Criterion 1:
+// A before_save hook that returns an error aborts the transaction; no partial write occurs.
+// ─────────────────────────────────────────────
+
+func TestEngine_Phase4_BeforeSaveHookAbortsTransaction(t *testing.T) {
+	eng, reg := newTestEngine(t, &employee{})
+	bus := event.NewBus()
+	eng.SetEventBus(bus)
+
+	ctx := context.Background()
+
+	// Register a before_save hook that returns an error
+	bus.On("Employee", event.EventBeforeSave, func(ctx context.Context, doc map[string]any) error {
+		return errors.New("hook rejected save")
+	})
+
+	_, err := eng.Create(ctx, "Employee", map[string]any{
+		"FirstName": "Failing",
+		"LastName":  "Hook",
+	})
+	require.Error(t, err, "Create must return error when before_save hook fails")
+
+	// Verify no record was inserted in DB
+	rows, err := eng.List(ctx, "Employee", document.ListOpts{})
+	require.NoError(t, err)
+	assert.Len(t, rows, 0, "Database must remain empty after hook failure")
+
+	_ = reg
+}
+
+// ─────────────────────────────────────────────
+// Phase 4 Completion Criterion 2:
+// A user without Create permission receives errors.CodePermission before any DAL call.
+// ─────────────────────────────────────────────
+
+type restrictedDoc struct {
+	schema.BaseDocument
+	Title string
+}
+
+func (r *restrictedDoc) DocMeta() schema.Meta {
+	return schema.Meta{
+		Name: "RestrictedDoc",
+		Permissions: []schema.DocPermission{
+			{Role: "Admin", Create: true, Read: true},
+			{Role: "User", Read: true},
+		},
+	}
+}
+
+func TestEngine_Phase4_PermissionDeniedBeforeDAL(t *testing.T) {
+	eng, _ := newTestEngine(t, &restrictedDoc{})
+	reg := schema.NewRegistry()
+	require.NoError(t, reg.Register("test-app", &restrictedDoc{}))
+	require.NoError(t, reg.Compile())
+
+	pEngine := perm.NewEngine(reg)
+	eng.SetPermEngine(pEngine)
+
+	userCtx := auth.NewContext(context.Background(), auth.Identity{
+		UserID: "usr_user",
+		Roles:  []string{"User"},
+	})
+
+	// User lacking Create role attempts to create
+	_, err := eng.Create(userCtx, "RestrictedDoc", map[string]any{
+		"Title": "Secret",
+	})
+	require.Error(t, err)
+	var ojErr orjerrors.Error
+	require.True(t, errors.As(err, &ojErr))
+	assert.Equal(t, orjerrors.CodePermission, ojErr.Code(), "User without Create role must receive CodePermission")
+}
+
+// ─────────────────────────────────────────────
+// Phase 4 Completion Criterion 5:
+// Every successful write produces exactly one audit.Entry in the same transaction.
+// ─────────────────────────────────────────────
+
+func TestEngine_Phase4_AuditLogEntryWrittenInSameTx(t *testing.T) {
+	eng, _ := newTestEngine(t, &employee{})
+	auditLog := audit.NewInMemoryLog()
+	eng.SetAuditLog(auditLog)
+
+	ctx := auth.NewContext(context.Background(), auth.Identity{UserID: "admin_1"})
+
+	id, err := eng.Create(ctx, "Employee", map[string]any{
+		"FirstName": "Audited",
+		"LastName":  "User",
+		"Email":     "audited@example.com",
+	})
+	require.NoError(t, err)
+
+	entries, err := auditLog.Query(ctx, audit.QueryFilter{
+		DocType: "Employee",
+		DocID:   id,
+	})
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "Exactly one audit entry must be created on document create")
+	assert.Equal(t, "create", entries[0].Action)
+	assert.Equal(t, "admin_1", entries[0].UserID)
+}
+

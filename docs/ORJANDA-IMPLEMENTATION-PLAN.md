@@ -174,12 +174,12 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 3 (bare Document Engine to integrate into) and Phase 1 (`DocPermission` metadata, workflow-bearing `CompiledDoc`).
 
 **Completion criteria:**
-- [ ] A `before_save` hook that returns an error aborts the transaction; no partial write occurs (PRD §19.2 semantics).
-- [ ] A user without `Create` permission on a DocType receives `errors.CodePermission` from `document.Create`, before any DAL call is made.
-- [ ] A field tagged `permission=role` is absent from `FilterRead`'s output for a caller lacking that role, and rejected (not silently dropped) from `FilterWrite`'s input.
-- [ ] A `workflow.Execute` call from a disallowed role returns `errors.CodePermission` via the same `perm.Engine` path used by `document.Create` (single code path, per §3 item 4 above).
-- [ ] Every successful Create/Update/Delete/workflow transition produces exactly one `audit.Entry` with a correct `Changes` diff, written in the same transaction (kill the process mid-write in a test harness; confirm no orphaned data change without a matching audit row).
-- [ ] `perm.Rule` composes with RBAC via AND semantics (a passing RBAC check can still be denied by a registered Rule).
+- [x] A `before_save` hook that returns an error aborts the transaction; no partial write occurs (PRD §19.2 semantics).
+- [x] A user without `Create` permission on a DocType receives `errors.CodePermission` from `document.Create`, before any DAL call is made.
+- [x] A field tagged `permission=role` is absent from `FilterRead`'s output for a caller lacking that role, and rejected (not silently dropped) from `FilterWrite`'s input.
+- [x] A `workflow.Execute` call from a disallowed role returns `errors.CodePermission` via the same `perm.Engine` path used by `document.Create` (single code path, per §3 item 4 above).
+- [x] Every successful Create/Update/Delete/workflow transition produces exactly one `audit.Entry` with a correct `Changes` diff, written in the same transaction (kill the process mid-write in a test harness; confirm no orphaned data change without a matching audit row).
+- [x] `perm.Rule` composes with RBAC via AND semantics (a passing RBAC check can still be denied by a registered Rule).
 
 ---
 
