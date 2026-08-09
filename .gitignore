@@ -1,0 +1,52 @@
+# ── Binaries ────────────────────────────────────────────────────────────────
+/orjanda
+/bin/
+dist/
+
+# ── Go toolchain ─────────────────────────────────────────────────────────────
+# Test cache and build cache are managed by $GOCACHE; nothing to ignore there.
+# Cover profiles and test binaries
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# ── Database files ───────────────────────────────────────────────────────────
+# SQLite databases created by `orjanda serve` or tests
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ── Migrations (generated, not hand-authored) ────────────────────────────────
+# Only ignore auto-generated migration artefacts, not the migrations/ dir itself.
+migrations/*.generated.sql
+
+# ── Configuration / secrets ──────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+orjanda.local.yaml
+
+# ── Editor / IDE ─────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS noise ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── golangci-lint cache ──────────────────────────────────────────────────────
+.golangci-lint-cache/
+
+# ── Node (orjanda-ui / @orjanda/codegen, Phase 9) ───────────────────────────
+node_modules/
+orjanda-ui/dist/
+orjanda-ui/.vite/
+
+# ── Temporary / scratch ──────────────────────────────────────────────────────
+tmp/
