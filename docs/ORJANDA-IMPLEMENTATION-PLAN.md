@@ -110,7 +110,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ---
 
-### Phase 2 — Data Access Layer, Dialects & Migrations
+### Phase 2 — Data Access Layer, Dialects & Migrations ✅ COMPLETE
 
 **Objective:** Registry-driven SQL generation against both MVP dialects, plus a working diff/apply migration pipeline.
 
@@ -127,12 +127,12 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 1 (`schema.Registry`, `CompiledDoc` are the direct inputs to `Diff` and `CreateTable`).
 
 **Completion criteria:**
-- [ ] `Diff` against an empty database for the Phase 1 reference Application produces `CreateTable` statements for both dialects.
-- [ ] `migrate up` applied twice is idempotent (no error, no duplicate DDL) on both dialects.
-- [ ] A destructive change (dropped column) is excluded from `Write`'s output unless `--allow-destructive` is set.
-- [ ] Snapshot tests confirm identical logical SQL semantics between the PostgreSQL and SQLite dialects for the same `Select` (PRD §40 Risk R2 mitigation).
-- [ ] `FullTextSearch` returns matching IDs for a `Searchable` field on both dialects.
-- [ ] `cache.Store` `Get`/`Set`/`Delete` round-trip correctly with TTL expiry.
+- [x] `Diff` against an empty database for the Phase 1 reference Application produces `CreateTable` statements for both dialects.
+- [x] `migrate up` applied twice is idempotent (no error, no duplicate DDL) on both dialects.
+- [x] A destructive change (dropped column) is excluded from `Write`'s output unless `--allow-destructive` is set.
+- [x] Snapshot tests confirm identical logical SQL semantics between the PostgreSQL and SQLite dialects for the same `Select` (PRD §40 Risk R2 mitigation).
+- [x] `FullTextSearch` returns matching IDs for a `Searchable` field on both dialects.
+- [x] `cache.Store` `Get`/`Set`/`Delete` round-trip correctly with TTL expiry.
 
 ---
 

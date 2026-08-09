@@ -1,6 +1,3 @@
-// Package sqlite implements the dal.Dialect interface for SQLite using
-// modernc.org/sqlite (pure-Go, no CGo required).
-//
-// See TAD §2.3 and PRD §13.3 for the full specification.
-// Implemented in Phase 2.
+// Package sqlite provides the SQLite dialect for Orjanda's DAL.
+// Uses modernc.org/sqlite (pure-Go, no CGo). See TAD §2.3 and PRD §13.3.
 package sqlite
