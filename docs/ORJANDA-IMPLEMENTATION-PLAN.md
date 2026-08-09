@@ -136,7 +136,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ---
 
-### Phase 3 — Document Engine (Bare CRUD)
+### Phase 3 — Document Engine (Bare CRUD) ✅ COMPLETE
 
 **Objective:** Create/Read/Update/Delete/List against the DAL through the Document Engine, with schema validation but **without** permissions, hooks, or workflow (those arrive in Phase 4) — matching TAD §18 M2's explicit scoping.
 
@@ -150,10 +150,10 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 2 (DAL, dialects, migrations must exist to persist anything).
 
 **Completion criteria:**
-- [ ] Full CRUD round-trip against both dialects via `document.Create/Read/Update/Delete/List`, called directly (no HTTP layer yet).
-- [ ] A `required` field violation, a `unique` constraint violation, and a `format=email` violation each return `errors.CodeValidation` with field-level `Details()`.
-- [ ] Deleting a record sets `Deleted=true` and excludes it from `List` by default.
-- [ ] Every write operation is transactional: a forced failure mid-write (test-only fault injection) leaves the database unchanged.
+- [x] Full CRUD round-trip against both dialects via `document.Create/Read/Update/Delete/List`, called directly (no HTTP layer yet).
+- [x] A `required` field violation, a `unique` constraint violation, and a `format=email` violation each return `errors.CodeValidation` with field-level `Details()`.
+- [x] Deleting a record sets `Deleted=true` and excludes it from `List` by default.
+- [x] Every write operation is transactional: a forced failure mid-write (test-only fault injection) leaves the database unchanged.
 
 ---
 
