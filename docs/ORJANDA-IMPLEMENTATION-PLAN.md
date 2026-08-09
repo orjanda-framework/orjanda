@@ -64,7 +64,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ## 4. Phase Plan
 
-### Phase 0 — Repository Scaffolding & Foundational Primitives
+### Phase 0 — Repository Scaffolding & Foundational Primitives ✅ COMPLETE
 
 **Objective:** A compilable, empty Orjanda module with the primitives every other package depends on.
 
@@ -79,10 +79,10 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** None — this is the root of the build.
 
 **Completion criteria:**
-- [ ] `go build ./...` succeeds with all package stubs in place.
-- [ ] `errors.Error` round-trips through the HTTP status mapping table for all six `ErrorCode` values.
-- [ ] `config.Load()` correctly parses the example `orjanda.yaml` from TAD §1.3, with env var override verified for at least one nested key (`ORJANDA_OPENAI_API_KEY`).
-- [ ] CI pipeline is green on an empty commit.
+- [x] `go build ./...` succeeds with all package stubs in place.
+- [x] `errors.Error` round-trips through the HTTP status mapping table for all six `ErrorCode` values.
+- [x] `config.Load()` correctly parses the example `orjanda.yaml` from TAD §1.3, with env var override verified for at least one nested key (`ORJANDA_OPENAI_API_KEY`).
+- [x] CI pipeline is green on an empty commit.
 
 ---
 
