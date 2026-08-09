@@ -192,7 +192,7 @@ func (d *Dialect) DeleteSQL(tableName, id string) (string, []any) {
 // For SQLite, uses LIKE %query% across all searchable text columns as a lightweight MVP implementation.
 func (d *Dialect) FullTextSearch(tableName, query string, searchableFields []string) (string, []any) {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("SELECT \"id\" FROM %q WHERE (\"deleted\" = ? OR \"deleted\" IS NULL)", tableName))
+	fmt.Fprintf(&sb, "SELECT \"id\" FROM %q WHERE (\"deleted\" = ? OR \"deleted\" IS NULL)", tableName)
 
 	args := []any{false}
 	pattern := "%" + query + "%"

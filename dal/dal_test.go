@@ -117,7 +117,7 @@ func TestMigrateUp_Idempotent(t *testing.T) {
 
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	dir := t.TempDir()
 
@@ -149,7 +149,7 @@ func TestMigrateUp_Idempotent(t *testing.T) {
 func TestMigratorWrite_DestructiveGate(t *testing.T) {
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	dir := t.TempDir()
 	m := dal.NewMigratorWithInspector(db.Dialect(), db.Underlying(), db)
@@ -439,7 +439,7 @@ func TestSQLiteDialect_SelectSQL_IncludeDeleted(t *testing.T) {
 func TestMigratorWrite_EmptyDiff_ReturnsEmpty(t *testing.T) {
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	dir := t.TempDir()
 	m := dal.NewMigratorWithInspector(db.Dialect(), db.Underlying(), db)
@@ -452,7 +452,7 @@ func TestMigratorWrite_EmptyDiff_ReturnsEmpty(t *testing.T) {
 func TestMigratorWrite_ContainsGooseMarkers(t *testing.T) {
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	dir := t.TempDir()
 	m := dal.NewMigratorWithInspector(db.Dialect(), db.Underlying(), db)
@@ -489,7 +489,7 @@ func TestMigrateUp_MultiDialectFileIsolation(t *testing.T) {
 	reg := compileRegistry(t)
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	dir := t.TempDir()
 
