@@ -157,7 +157,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ---
 
-### Phase 4 — Business Logic Services & Engine Integration
+### Phase 4 — Business Logic Services & Engine Integration ✅ COMPLETE
 
 **Objective:** The Document Engine enforces permissions, fires lifecycle hooks, supports declared workflows, and writes an immutable audit trail — completing the request lifecycle in PRD §12.2 / TAD §3.2 in full.
 
@@ -183,7 +183,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 
 ---
 
-### Phase 5 — Authentication & Core Application
+### Phase 5 — Authentication & Core Application ✅ COMPLETE
 
 **Objective:** Real users can authenticate, hold roles, and the system bootstraps a working administrator on first run.
 
@@ -198,10 +198,10 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 4 (`perm.Engine` must exist to grant `RolePermission` rows meaning; `orjanda-core`'s Documents flow through the full Phase 1–4 pipeline like any Application).
 
 **Completion criteria:**
-- [ ] Fresh database + `orjanda-core` install → bootstrap creates exactly one admin user, logs a password once, and is idempotent (second startup does not recreate or reset it).
-- [ ] JWT access token expires at 15 minutes; refresh token rotates on use; a reused (revoked) refresh token is rejected.
-- [ ] `auth.Provider` is swappable via config without touching `document`, `perm`, or `api` code (interface substitution test with a mock `Provider`).
-- [ ] A `RolePermission` row change is visible to `perm.Engine.CheckAction` on the next request (no stale-permission caching bug at this layer — caching is introduced later in Phase 12 and must not violate this).
+- [x] Fresh database + `orjanda-core` install → bootstrap creates exactly one admin user, logs a password once, and is idempotent (second startup does not recreate or reset it).
+- [x] JWT access token expires at 15 minutes; refresh token rotates on use; a reused (revoked) refresh token is rejected.
+- [x] `auth.Provider` is swappable via config without touching `document`, `perm`, or `api` code (interface substitution test with a mock `Provider`).
+- [x] A `RolePermission` row change is visible to `perm.Engine.CheckAction` on the next request (no stale-permission caching bug at this layer — caching is introduced later in Phase 12 and must not violate this).
 
 ---
 

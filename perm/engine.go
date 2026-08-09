@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/orjanda-framework/orjanda/auth"
+	"github.com/orjanda-framework/orjanda/dal"
 	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/schema"
 )
@@ -47,6 +48,9 @@ type Engine interface {
 
 	// RegisterRule wires a custom ABAC Rule into evaluation, run after RBAC.
 	RegisterRule(r Rule)
+
+	// SetDatabase attaches a database instance for dynamic RolePermission queries.
+	SetDatabase(db dal.Database)
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +59,7 @@ type Engine interface {
 
 type engine struct {
 	reg   schema.Registry
+	db    dal.Database
 	rules []Rule
 }
 
@@ -62,6 +67,10 @@ type engine struct {
 // The Registry must already be compiled before NewEngine is called.
 func NewEngine(reg schema.Registry) Engine {
 	return &engine{reg: reg}
+}
+
+func (e *engine) SetDatabase(db dal.Database) {
+	e.db = db
 }
 
 func (e *engine) RegisterRule(r Rule) {
@@ -83,7 +92,18 @@ func (e *engine) CheckAction(ctx context.Context, docType, action string) error 
 		return orjerrors.Permission("unknown document type: " + docType)
 	}
 
-	if len(compiled.Permissions) > 0 && !rbacCheck(id, compiled, action) {
+	allowed := hasRole(id, "System Administrator")
+	if !allowed && len(compiled.Permissions) > 0 {
+		allowed = rbacCheck(id, compiled, action)
+	}
+	if !allowed {
+		dbAllowed, dbErr := e.checkDBPermissions(ctx, id, docType, action)
+		if dbErr == nil && dbAllowed {
+			allowed = true
+		}
+	}
+
+	if !allowed && (len(compiled.Permissions) > 0 || e.db != nil) {
 		slog.Warn("perm.denied", "user", id.UserID, "doctype", docType, "action", action, "via_agent", false)
 		return orjerrors.Permission(
 			"permission denied: action " + action + " on " + docType)
@@ -98,6 +118,38 @@ func (e *engine) CheckAction(ctx context.Context, docType, action string) error 
 		}
 	}
 	return nil
+}
+
+func (e *engine) checkDBPermissions(ctx context.Context, id auth.Identity, docType, action string) (bool, error) {
+	if e.db == nil || len(id.Roles) == 0 {
+		return false, nil
+	}
+
+	rows, err := e.db.Query(ctx, dal.Select{
+		DocType: "RolePermission",
+		Filters: map[string]any{
+			"doc_type": docType,
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	actionField := strings.ToLower(action)
+	if actionField == "update" {
+		actionField = "write"
+	}
+
+	for _, row := range rows {
+		roleVal, _ := row["role"].(string)
+		if hasRole(id, roleVal) {
+			if flag, ok := row[actionField].(bool); ok && flag {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 // rbacCheck returns true if identity holds a role that grants action on compiled.

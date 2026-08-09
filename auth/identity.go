@@ -10,18 +10,25 @@ type Identity struct {
 	UserID string
 	// Email is the user's email address.
 	Email string
+	// FullName is the display name of the user.
+	FullName string
 	// Roles is the list of role names this user holds (e.g. "HR Manager").
 	Roles []string
 	// Tenant is the tenant identifier for post-MVP multi-tenancy (§15).
 	// Always empty string in MVP (site.Config.MultiTenant = false).
 	Tenant string
+	// Source indicates authentication origin ("local", "oauth:google", etc.).
+	Source string
 }
 
 // UserInfo holds the public profile of an authenticated user.
 type UserInfo struct {
-	UserID string
-	Email  string
-	Roles  []string
+	UserID   string
+	Email    string
+	FullName string
+	Roles    []string
+	Tenant   string
+	Source   string
 }
 
 // Provider is the extension point for authentication backends.
