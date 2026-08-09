@@ -16,27 +16,13 @@ linters:
     - noctx           # http requests without context
     - bodyclose       # http response body not closed
 
-linters-settings:
-  revive:
-    rules:
-      # Enforce package-level doc comments on all packages (AGENTS.md §6).
-      - name: package-comments
-        severity: warning
-      # Error return values must not be silently ignored.
-      - name: unhandled-error
-        severity: error
-        disabled: true  # covered by errcheck
-
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-
-issues:
-  # Exclude test files from some linters to reduce noise.
-  exclude-rules:
-    - path: "_test\\.go"
-      linters:
-        - gocritic
-        - revive
+  settings:
+    revive:
+      rules:
+        - name: package-comments
+          severity: warning
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
