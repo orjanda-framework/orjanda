@@ -594,4 +594,3 @@ func TestEngine_Phase4_AuditLogEntryWrittenInSameTx(t *testing.T) {
 	assert.Equal(t, "create", entries[0].Action)
 	assert.Equal(t, "admin_1", entries[0].UserID)
 }
-

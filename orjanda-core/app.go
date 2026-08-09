@@ -1,3 +1,4 @@
+// Package core defines the bootstrapped core application for identity, roles, and permissions.
 package core
 
 import "github.com/orjanda-framework/orjanda/app"

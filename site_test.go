@@ -1,6 +1,7 @@
 package orjanda_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,7 +55,7 @@ func TestSite_Lifecycle(t *testing.T) {
 	}
 
 	// Test HTTP routing via site.ServeHTTP
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/meta", http.NoBody)
 	w := httptest.NewRecorder()
 
 	site.ServeHTTP(w, req)

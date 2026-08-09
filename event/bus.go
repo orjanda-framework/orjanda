@@ -58,8 +58,8 @@ type registration struct {
 }
 
 type bus struct {
-	mu        sync.RWMutex
-	handlers  []registration // ordered slice; append-order == registration order
+	mu       sync.RWMutex
+	handlers []registration // ordered slice; append-order == registration order
 }
 
 // NewBus creates a new, empty event Bus.

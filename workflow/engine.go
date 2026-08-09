@@ -36,7 +36,7 @@ type State struct {
 type Transition struct {
 	From         string
 	To           string
-	Action       string    // verb surfaced as a UI button label and an agent enum value
+	Action       string // verb surfaced as a UI button label and an agent enum value
 	AllowedRoles []string
 	Guard        GuardFunc // optional; evaluated after the AllowedRoles check
 }

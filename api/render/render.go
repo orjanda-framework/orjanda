@@ -1,3 +1,4 @@
+// Package render provides HTTP response serialization and standardized error formatting.
 package render
 
 import (

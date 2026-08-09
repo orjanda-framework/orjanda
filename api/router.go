@@ -33,7 +33,6 @@ func NewRouter(opts RouterOptions) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 
 	// PRD §12.2 Middleware order: CORS -> Auth -> RateLimit -> Permission -> Handler

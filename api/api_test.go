@@ -31,10 +31,10 @@ type Task struct {
 
 func (t *Task) DocMeta() schema.Meta {
 	return schema.Meta{
-		Name:        "Task",
-		Module:      "Core",
-		Searchable:  true,
-		TitleField:  "Title",
+		Name:       "Task",
+		Module:     "Core",
+		Searchable: true,
+		TitleField: "Title",
 		Permissions: []schema.DocPermission{
 			{Role: "System Administrator", Read: true, Write: true, Create: true, Delete: true},
 			{Role: "Task Manager", Read: true, Write: true, Create: true, Delete: false},
@@ -104,6 +104,7 @@ func generateToken(t *testing.T, provider *auth.JWTProvider, userID, email strin
 // Admin, Task Manager, Task Viewer, and Unauthorized user.
 func TestREST_FullLifecycle(t *testing.T) {
 	handler, jwtProvider, _ := setupAPITestSite(t)
+	ctx := context.Background()
 
 	adminToken := generateToken(t, jwtProvider, "usr_admin", "admin@localhost", []string{"System Administrator"})
 	managerToken := generateToken(t, jwtProvider, "usr_mgr", "mgr@localhost", []string{"Task Manager"})
@@ -120,7 +121,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 			"assignee": "Engineer A",
 		}
 		jsonBody, _ := json.Marshal(body)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/document/Task", bytes.NewReader(jsonBody))
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/document/Task", bytes.NewReader(jsonBody))
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -149,7 +150,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 
 	// 2. Viewer reads Task (Allowed)
 	{
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/document/Task/"+taskID, nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/document/Task/"+taskID, http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+viewerToken)
 		w := httptest.NewRecorder()
 
@@ -161,7 +162,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 
 	// 3. Guest reads Task (Denied)
 	{
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/document/Task/"+taskID, nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/document/Task/"+taskID, http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+guestToken)
 		w := httptest.NewRecorder()
 
@@ -175,7 +176,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 	{
 		body := map[string]any{"status": "Done"}
 		jsonBody, _ := json.Marshal(body)
-		req := httptest.NewRequest(http.MethodPatch, "/api/v1/document/Task/"+taskID, bytes.NewReader(jsonBody))
+		req := httptest.NewRequestWithContext(ctx, http.MethodPatch, "/api/v1/document/Task/"+taskID, bytes.NewReader(jsonBody))
 		req.Header.Set("Authorization", "Bearer "+managerToken)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -190,7 +191,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 	{
 		body := map[string]any{"status": "Open"}
 		jsonBody, _ := json.Marshal(body)
-		req := httptest.NewRequest(http.MethodPatch, "/api/v1/document/Task/"+taskID, bytes.NewReader(jsonBody))
+		req := httptest.NewRequestWithContext(ctx, http.MethodPatch, "/api/v1/document/Task/"+taskID, bytes.NewReader(jsonBody))
 		req.Header.Set("Authorization", "Bearer "+viewerToken)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -203,7 +204,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 
 	// 6. Task Manager attempts Delete (Denied - Task Manager does not have delete permission)
 	{
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/document/Task/"+taskID, nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodDelete, "/api/v1/document/Task/"+taskID, http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+managerToken)
 		w := httptest.NewRecorder()
 
@@ -215,7 +216,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 
 	// 7. Admin deletes Task (Allowed)
 	{
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/document/Task/"+taskID, nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodDelete, "/api/v1/document/Task/"+taskID, http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		w := httptest.NewRecorder()
 
@@ -229,6 +230,7 @@ func TestREST_FullLifecycle(t *testing.T) {
 // TestRPC_MethodPermission asserts that custom RPC methods enforce AllowedRoles.
 func TestRPC_MethodPermission(t *testing.T) {
 	handler, jwtProvider, _ := setupAPITestSite(t)
+	ctx := context.Background()
 	rpc.ResetRegistry()
 
 	api.RegisterMethod("task.assign", func(ctx context.Context, args map[string]any) (any, error) {
@@ -244,7 +246,7 @@ func TestRPC_MethodPermission(t *testing.T) {
 	{
 		body := map[string]any{"task_id": "123"}
 		jsonBody, _ := json.Marshal(body)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/method/task.assign", bytes.NewReader(jsonBody))
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/method/task.assign", bytes.NewReader(jsonBody))
 		req.Header.Set("Authorization", "Bearer "+managerToken)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -259,7 +261,7 @@ func TestRPC_MethodPermission(t *testing.T) {
 	{
 		body := map[string]any{"task_id": "123"}
 		jsonBody, _ := json.Marshal(body)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/method/task.assign", bytes.NewReader(jsonBody))
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/method/task.assign", bytes.NewReader(jsonBody))
 		req.Header.Set("Authorization", "Bearer "+viewerToken)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -275,6 +277,7 @@ func TestRPC_MethodPermission(t *testing.T) {
 // accurate pre-calculated permissions for different calling identities.
 func TestMetaAPI_PrecalculatedPermissions(t *testing.T) {
 	handler, jwtProvider, _ := setupAPITestSite(t)
+	ctx := context.Background()
 
 	adminToken := generateToken(t, jwtProvider, "usr_admin", "admin@localhost", []string{"System Administrator"})
 	managerToken := generateToken(t, jwtProvider, "usr_mgr", "mgr@localhost", []string{"Task Manager"})
@@ -282,7 +285,7 @@ func TestMetaAPI_PrecalculatedPermissions(t *testing.T) {
 
 	// 1. Check Admin permissions (All true)
 	{
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/meta/Task", nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/meta/Task", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		w := httptest.NewRecorder()
 
@@ -303,7 +306,7 @@ func TestMetaAPI_PrecalculatedPermissions(t *testing.T) {
 
 	// 2. Check Task Manager permissions (Delete = false)
 	{
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/meta/Task", nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/meta/Task", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+managerToken)
 		w := httptest.NewRecorder()
 
@@ -324,7 +327,7 @@ func TestMetaAPI_PrecalculatedPermissions(t *testing.T) {
 
 	// 3. Check Task Viewer permissions (Read = true, others false)
 	{
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/meta/Task", nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/meta/Task", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+viewerToken)
 		w := httptest.NewRecorder()
 
@@ -347,6 +350,7 @@ func TestMetaAPI_PrecalculatedPermissions(t *testing.T) {
 // TestAPI_Performance benchmarks response times for CRUD (< 50ms) and paginated list (< 100ms).
 func TestAPI_Performance(t *testing.T) {
 	handler, jwtProvider, _ := setupAPITestSite(t)
+	ctx := context.Background()
 	adminToken := generateToken(t, jwtProvider, "usr_admin", "admin@localhost", []string{"System Administrator"})
 
 	// Create 100 Task records for list test
@@ -357,7 +361,7 @@ func TestAPI_Performance(t *testing.T) {
 			"assignee": "Engineer",
 		}
 		jsonBody, _ := json.Marshal(body)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/document/Task", bytes.NewReader(jsonBody))
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/document/Task", bytes.NewReader(jsonBody))
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -366,7 +370,7 @@ func TestAPI_Performance(t *testing.T) {
 
 	// Measure Paginated List performance
 	start := time.Now()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/document/Task?limit=50&offset=0", nil)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/document/Task?limit=50&offset=0", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)

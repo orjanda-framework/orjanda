@@ -18,7 +18,7 @@ type Entry struct {
 	UserID       string
 	DocType      string
 	DocID        string
-	Action       string       // "create" | "update" | "delete" | "workflow_transition"
+	Action       string // "create" | "update" | "delete" | "workflow_transition"
 	Changes      []FieldChange
 	ViaAgent     bool
 	AgentSession string

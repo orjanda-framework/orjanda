@@ -1,3 +1,4 @@
+// Package orjanda provides the central Site composition root and Application registration.
 package orjanda
 
 import (

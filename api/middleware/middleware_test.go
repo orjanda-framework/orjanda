@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,7 +19,7 @@ func TestCORS(t *testing.T) {
 	})
 
 	// Preflight OPTIONS request
-	req := httptest.NewRequest(http.MethodOptions, "/api/v1/document/Task", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, "/api/v1/document/Task", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:3000")
 	w := httptest.NewRecorder()
 
@@ -41,7 +42,7 @@ func TestAuthMiddleware_Unauthenticated(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/document/Task", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/document/Task", http.NoBody)
 	w := httptest.NewRecorder()
 
 	mw(dummyHandler).ServeHTTP(w, req)
@@ -56,6 +57,7 @@ func TestAuthMiddleware_Unauthenticated(t *testing.T) {
 func TestRateLimit(t *testing.T) {
 	store := cache.NewLRUStore(100)
 	mw := apimiddleware.RateLimit(2, time.Minute, store)
+	ctx := context.Background()
 
 	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -64,7 +66,7 @@ func TestRateLimit(t *testing.T) {
 	h := mw(dummyHandler)
 
 	// Call 1 (OK)
-	req1 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req1 := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", http.NoBody)
 	req1.RemoteAddr = "127.0.0.1:12345"
 	w1 := httptest.NewRecorder()
 	h.ServeHTTP(w1, req1)
@@ -73,7 +75,7 @@ func TestRateLimit(t *testing.T) {
 	}
 
 	// Call 2 (OK)
-	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2 := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", http.NoBody)
 	req2.RemoteAddr = "127.0.0.1:12345"
 	w2 := httptest.NewRecorder()
 	h.ServeHTTP(w2, req2)
@@ -82,7 +84,7 @@ func TestRateLimit(t *testing.T) {
 	}
 
 	// Call 3 (Rate Limited - 400 Bad Request / Validation error)
-	req3 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req3 := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", http.NoBody)
 	req3.RemoteAddr = "127.0.0.1:12345"
 	w3 := httptest.NewRecorder()
 	h.ServeHTTP(w3, req3)
