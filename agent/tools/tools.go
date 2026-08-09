@@ -122,6 +122,14 @@ func registeredCustomTools() []Tool {
 	return append([]Tool(nil), customToolList...)
 }
 
+// CustomTools returns a snapshot of every registered custom tool, exposing
+// their Handlers to the Agent Executor (agent/runtime, Phase 8). It mirrors
+// the rpc.Methods accessor pattern; the ToolRegistry interface itself does not
+// need them because ForIdentity already merges the definitions.
+func CustomTools() []Tool {
+	return registeredCustomTools()
+}
+
 // ResetCustomTools clears all custom tool registrations (test helper).
 func ResetCustomTools() {
 	customMu.Lock()
