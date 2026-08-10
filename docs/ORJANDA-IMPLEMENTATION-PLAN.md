@@ -336,9 +336,22 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 8 (agent testing needs `MockLLM` against a real `Runtime`); conceptually this phase could start earlier, but is sequenced last among the "backend-complete" phases so it can validate the *entire* stack, not a partial one.
 
 **Completion criteria:**
-- [ ] PRD §32.2's `TestLeaveRequestCreation` and §32.3's `TestAgentCanSearchEmployees` run verbatim (adjusted only for final package paths) against the finished framework.
-- [ ] `NewTestSite` provisions a fresh isolated database per test with no cross-test leakage (parallel test run assertion).
-- [ ] `MockLLM` correctly scripts a full Plan-and-Execute + `ApprovalPrompt` exchange (Phase 8 completion criteria's PRD §38.2 scenario, now expressed as a harness-based test rather than an ad hoc double).
+- [x] PRD §32.2's `TestLeaveRequestCreation` and §32.3's `TestAgentCanSearchEmployees` run verbatim (adjusted only for final package paths) against the finished framework.
+- [x] `NewTestSite` provisions a fresh isolated database per test with no cross-test leakage (parallel test run assertion).
+- [x] `MockLLM` correctly scripts a full Plan-and-Execute + `ApprovalPrompt` exchange (Phase 8 completion criteria's PRD §38.2 scenario, now expressed as a harness-based test rather than an ad hoc double).
+
+> **Phase 11 done notes:** `testing/` now ships `NewTestSite`, `WithApps`, `WithDocuments`,
+> `WithDialect`, `CreateUser`, `WithUser`, `SeedFixtures`, and `MockLLM`/`ToolCall`/`ToolCalls`/
+> `TextResponse`/`ApprovalPrompt` per TAD §17. `TestSite` exposes the real Document Engine as
+> `site.Document` and an Agent Runtime as `site.Agent`; per-turn LLM/approval injection is
+> provided by `agent.WithProvider`/`agent.WithApprovals` (TAD §3.3). The three completion
+> criteria are proven by `testing/site_test.go` (PRD §32.2/§32.3 verbatim, parallel isolation,
+> Plan-and-Execute + approval round trip). The `testcontainers-go` PostgreSQL lane runs under
+> the `integration` build tag (`testing/postgres_integration_test.go`); the CI `integration` job
+> gates it away from the fast SQLite unit lane. The ad-hoc doubles in `agent/runtime` and
+> `orjanda-core` were deliberately kept: they exercise unit-level concerns (provider transcripts,
+> `repeat`/`failNext`, event sinks, concrete `*sqlite.DB`) the app-level harness does not expose,
+> and the harness is dogfooded by its own self-tests instead.
 
 ---
 
