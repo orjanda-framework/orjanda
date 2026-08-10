@@ -104,6 +104,15 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		args = append(args, q.Filters[k])
 	}
 
+	if len(q.IDs) > 0 {
+		placeholders := make([]string, len(q.IDs))
+		for i := range q.IDs {
+			placeholders[i] = "?"
+			args = append(args, q.IDs[i])
+		}
+		conditions = append(conditions, fmt.Sprintf("%q IN (%s)", "id", strings.Join(placeholders, ", ")))
+	}
+
 	if len(conditions) > 0 {
 		sb.WriteString(" WHERE " + strings.Join(conditions, " AND "))
 	}

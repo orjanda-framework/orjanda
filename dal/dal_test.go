@@ -252,6 +252,56 @@ func TestFullTextSearch_SQLite_ReturnsMatchingIDs(t *testing.T) {
 	assert.Contains(t, ids, id, "FTS should return the inserted record ID")
 }
 
+// TestQuery_QFilter_RestrictsToFTSMatches verifies the Document List "q"
+// full-text parameter (PRD §688) resolves through Database.Query to an id-set
+// restriction, and that a non-matching query returns no rows.
+func TestQuery_QFilter_RestrictsToFTSMatches(t *testing.T) {
+	reg := compileRegistry(t)
+	db := newTestSQLiteDB(t, reg)
+
+	ctx := context.Background()
+	base := map[string]any{
+		"email":       "",
+		"owner":       "",
+		"created_at":  time.Now(),
+		"updated_at":  time.Now(),
+		"modified_by": "",
+		"doc_status":  0,
+		"deleted":     false,
+	}
+	base["title"] = "Orjanda Framework"
+	base["name"] = "First Record"
+	matchID, err := db.Insert(ctx, "TestDoc", base)
+	require.NoError(t, err)
+	base["title"] = "Something Else"
+	base["name"] = "Second Record"
+	otherID, err := db.Insert(ctx, "TestDoc", base)
+	require.NoError(t, err)
+
+	rows, err := db.Query(ctx, dal.Select{
+		DocType: "TestDoc",
+		Filters: map[string]any{"q": "Orjanda"},
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, matchID, rows[0]["id"])
+
+	rows, err = db.Query(ctx, dal.Select{
+		DocType: "TestDoc",
+		Filters: map[string]any{"q": "no-such-record"},
+	})
+	require.NoError(t, err)
+	assert.Len(t, rows, 0)
+
+	// Non-search filters still apply alongside the id-set restriction.
+	rows, err = db.Query(ctx, dal.Select{
+		DocType: "TestDoc",
+		Filters: map[string]any{"q": "", "id": otherID},
+	})
+	require.NoError(t, err)
+	assert.Len(t, rows, 0)
+}
+
 // ─────────────────────────────────────────────
 // Phase 2 Completion Criterion 6:
 // cache.Store Get/Set/Delete round-trip with TTL expiry.

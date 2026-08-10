@@ -20,6 +20,9 @@ type Select struct {
 	// Filters is a map of column_name → value for simple equality predicates.
 	// Advanced filters (range, IN, etc.) are post-MVP per TAD §2.3.
 	Filters map[string]any
+	// IDs restricts the query to an explicit id set rendered as "id IN (...)";
+	// the DAL populates it when translating the "q" full-text filter (PRD §688).
+	IDs []string
 	// OrderBy is the column name for ORDER BY (empty = no ordering).
 	OrderBy string
 	// Limit is the maximum rows to return (0 = no limit).

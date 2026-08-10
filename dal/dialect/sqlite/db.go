@@ -75,14 +75,27 @@ func (d *DB) Close() error { return d.db.Close() }
 
 // Query executes a Select and returns rows as maps.
 func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) {
-	if doc, ok := d.compiledDocs[q.DocType]; ok {
-		q = resolveSelect(doc, q)
+	var doc *schema.CompiledDoc
+	if cd, ok := d.compiledDocs[q.DocType]; ok {
+		doc = cd
+		q = resolveSelect(cd, q)
 	} else if q.TableName == "" {
 		tn, ok := d.tableNames[q.DocType]
 		if !ok {
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
 		}
 		q.TableName = tn
+	}
+	searchApplied := false
+	if doc != nil {
+		var err error
+		q, searchApplied, err = resolveSearchFilter(ctx, d.db, d.dialect, doc, q)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if searchApplied && len(q.IDs) == 0 {
+		return []map[string]any{}, nil
 	}
 	sqlStr, args := d.dialect.SelectSQL(q)
 	for i, a := range args {
@@ -203,14 +216,27 @@ func (t *txDB) Dialect() dal.Dialect { return t.dialect }
 func (t *txDB) Close() error { return nil }
 
 func (t *txDB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) {
-	if doc, ok := t.compiledDocs[q.DocType]; ok {
-		q = resolveSelect(doc, q)
+	var doc *schema.CompiledDoc
+	if cd, ok := t.compiledDocs[q.DocType]; ok {
+		doc = cd
+		q = resolveSelect(cd, q)
 	} else if q.TableName == "" {
 		tn, ok := t.tableNames[q.DocType]
 		if !ok {
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
 		}
 		q.TableName = tn
+	}
+	searchApplied := false
+	if doc != nil {
+		var err error
+		q, searchApplied, err = resolveSearchFilter(ctx, t.tx, t.dialect, doc, q)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if searchApplied && len(q.IDs) == 0 {
+		return []map[string]any{}, nil
 	}
 	sqlStr, args := t.dialect.SelectSQL(q)
 	for i, a := range args {
@@ -342,6 +368,59 @@ func resolveField(doc *schema.CompiledDoc, name string) string {
 		}
 	}
 	return name
+}
+
+// queryRower abstracts *sql.DB and *sql.Tx for full-text search lookups.
+type queryRower interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// resolveSearchFilter translates the "q" full-text filter (PRD §688 List
+// parameter) into an id-set restriction using the active Dialect's
+// FullTextSearch. It returns the possibly-modified Select and whether a "q"
+// filter was consumed; a consumed filter with zero matching IDs means the
+// caller must return no rows.
+func resolveSearchFilter(ctx context.Context, db queryRower, dialect *Dialect, doc *schema.CompiledDoc, q dal.Select) (dal.Select, bool, error) {
+	qVal, ok := q.Filters["q"]
+	if !ok {
+		return q, false, nil
+	}
+	delete(q.Filters, "q")
+
+	query := fmt.Sprint(qVal)
+	fields := make([]string, 0, len(doc.Fields))
+	for _, f := range doc.Fields {
+		if f.Searchable && f.Type != schema.FieldTypeChildTable {
+			fields = append(fields, f.DBColumn)
+		}
+	}
+	if strings.TrimSpace(query) == "" || len(fields) == 0 {
+		return q, true, nil
+	}
+
+	sqlStr, args := dialect.FullTextSearch(doc.TableName, query, fields)
+	for i, a := range args {
+		args[i] = formatValue(a)
+	}
+	rows, err := db.QueryContext(ctx, sqlStr, args...)
+	if err != nil {
+		return q, true, orjerrors.Internal("full-text search failed", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return q, true, orjerrors.Internal("scan search result", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return q, true, orjerrors.Internal("search result iteration failed", err)
+	}
+	q.IDs = ids
+	return q, true, nil
 }
 
 func scanRows(rows *sql.Rows) ([]map[string]any, error) {
