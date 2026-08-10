@@ -26,6 +26,13 @@ type Rule interface {
 	Evaluate(ctx context.Context, check Check) error
 }
 
+// ErrPermissionDenied matches any CodePermission error, including the ones the
+// Engine returns for RBAC denials. It is a re-export of errors.ErrPermission
+// (TAD §1.1: the six ErrorCodes own every error condition; perm introduces no
+// new error type) so permission checks read as perm.ErrPermissionDenied — e.g.
+// the PRD §32.3 TestAgentCanSearchEmployees acceptance test.
+var ErrPermissionDenied = orjerrors.ErrPermission
+
 // Engine evaluates access control for document-level and field-level operations.
 // See TAD §2.4 and §2.7.
 type Engine interface {
