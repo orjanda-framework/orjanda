@@ -1,0 +1,26 @@
+{
+  "app_name": "hr",
+  "module_path": "github.com/orjanda-framework/orjanda-app-hr-example",
+  "documents": [
+    {
+      "name": "Department",
+      "module": "org",
+      "submittable": false
+    },
+    {
+      "name": "Employee",
+      "module": "org",
+      "submittable": false
+    },
+    {
+      "name": "LeaveType",
+      "module": "leave",
+      "submittable": false
+    },
+    {
+      "name": "LeaveRequest",
+      "module": "leave",
+      "submittable": true
+    }
+  ]
+}
