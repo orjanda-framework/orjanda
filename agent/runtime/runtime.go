@@ -146,6 +146,31 @@ type Options struct {
 	SystemPrompt string
 }
 
+// ExecuteOption configures a single Runtime.Execute turn (TAD §3.3). It is
+// how a caller supplies a per-turn LLM provider (e.g. a test MockLLM) or
+// approval gateway without constructing a fresh Runtime.
+type ExecuteOption func(*executeConfig)
+
+type executeConfig struct {
+	provider  llm.Provider
+	approvals ApprovalGateway
+}
+
+// WithProvider overrides the Runtime's configured LLM provider for this turn
+// only. When the override also implements ApprovalGateway and no explicit
+// WithApprovals is given, it serves as the turn's approval gateway as well —
+// which is what lets orjanda/testing.MockLLM script approval round trips from
+// the same step queue as the tool/text responses (TAD §17, §12.3).
+func WithProvider(p llm.Provider) ExecuteOption {
+	return func(c *executeConfig) { c.provider = p }
+}
+
+// WithApprovals overrides the Runtime's human-in-the-loop gateway for this
+// turn only (TAD §12.3). It takes precedence over the WithProvider auto-wire.
+func WithApprovals(a ApprovalGateway) ExecuteOption {
+	return func(c *executeConfig) { c.approvals = a }
+}
+
 // Runtime is the concrete agent Runtime (TAD §2.6).
 type Runtime struct {
 	provider  llm.Provider
@@ -251,9 +276,28 @@ func (r *Runtime) Session(id string) *Session {
 
 // Execute runs one agent turn for the identity on ctx. The session id is read
 // from the context (safety.WithSession); when absent a new session is created
-// and returned in the Response.
-func (r *Runtime) Execute(ctx context.Context, userMessage string) (*Response, error) {
+// and returned in the Response. Per-turn overrides (ExecuteOption) apply to
+// this call only and leave the Runtime untouched.
+func (r *Runtime) Execute(ctx context.Context, userMessage string, opts ...ExecuteOption) (*Response, error) {
 	r.buildMaps()
+
+	cfg := executeConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	provider := r.provider
+	if cfg.provider != nil {
+		provider = cfg.provider
+	}
+	approvals := r.approvals
+	if cfg.approvals != nil {
+		approvals = cfg.approvals
+	} else if cfg.provider != nil {
+		if ag, ok := cfg.provider.(ApprovalGateway); ok {
+			approvals = ag
+		}
+	}
+
 	id := auth.FromContext(ctx)
 	sess := r.sessionFor(ctx, id)
 
@@ -273,7 +317,7 @@ func (r *Runtime) Execute(ctx context.Context, userMessage string) (*Response, e
 	tools := r.toolsForTurn(ctx, id, sess)
 
 	// First LLM call of the turn (ReAct default, TAD §11.2 step 1).
-	resp, err := r.chat(ctx, sess, tools, nil)
+	resp, err := r.chat(ctx, provider, sess, tools, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -304,14 +348,14 @@ func (r *Runtime) Execute(ctx context.Context, userMessage string) (*Response, e
 		// operation tools for the plan request (TAD §11.1).
 		if hasDataDependency(resp.ToolCalls) {
 			planTools := r.toolsForTurn(ctx, id, sess)
-			return r.executePlanMode(ctx, sess, userMessage, planTools, r.schemasFor(planTools))
+			return r.executePlanMode(ctx, sess, userMessage, planTools, r.schemasFor(planTools), provider, approvals)
 		}
 
 		// ReAct: append the assistant tool-call message, execute each call,
 		// feed results back, and loop.
 		sess.addMessage(llm.Message{Role: "assistant", ToolCalls: resp.ToolCalls})
 		for _, call := range resp.ToolCalls {
-			obs := r.executeToolCall(ctx, sess, call, userMessage)
+			obs := r.executeToolCall(ctx, sess, call, userMessage, approvals)
 			sess.addMessage(llm.Message{
 				Role:       "tool",
 				Name:       call.Name,
@@ -324,7 +368,7 @@ func (r *Runtime) Execute(ctx context.Context, userMessage string) (*Response, e
 		// attaching their operation tools to the next LLM request.
 		tools = r.toolsForTurn(ctx, id, sess)
 
-		resp, err = r.chat(ctx, sess, tools, nil)
+		resp, err = r.chat(ctx, provider, sess, tools, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -348,13 +392,13 @@ func (r *Runtime) sessionFor(ctx context.Context, id auth.Identity) *Session {
 
 // chat performs one LLM call with the session transcript and tool set,
 // enforcing the token budget and recording usage on the session.
-func (r *Runtime) chat(ctx context.Context, sess *Session, tools []llm.ToolDefinition, responseFormat *llm.JSONSchemaFormat) (*llm.ChatResponse, error) {
+func (r *Runtime) chat(ctx context.Context, provider llm.Provider, sess *Session, tools []llm.ToolDefinition, responseFormat *llm.JSONSchemaFormat) (*llm.ChatResponse, error) {
 	msgs := r.buildMessages(sess)
 	if err := r.safety.CheckTokenBudget(ctx, sess.ID, estimateTokens(msgs)); err != nil {
 		return nil, err
 	}
 
-	resp, err := r.provider.ChatCompletion(ctx, llm.ChatRequest{
+	resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
 		Model:          r.model,
 		Messages:       msgs,
 		Tools:          tools,
@@ -363,14 +407,14 @@ func (r *Runtime) chat(ctx context.Context, sess *Session, tools []llm.ToolDefin
 	if err != nil {
 		return nil, err
 	}
-	r.trackUsage(sess.ID, resp.Usage)
+	r.trackUsage(provider, sess.ID, resp.Usage)
 	return resp, nil
 }
 
 // trackUsage records token usage against the session when the provider tracks
 // it (the llm.Gateway does), feeding the Safety Layer's token budget.
-func (r *Runtime) trackUsage(key string, usage llm.TokenUsage) {
-	if g, ok := r.provider.(interface {
+func (r *Runtime) trackUsage(provider llm.Provider, key string, usage llm.TokenUsage) {
+	if g, ok := provider.(interface {
 		TrackUsage(string, llm.TokenUsage)
 	}); ok {
 		g.TrackUsage(key, usage)

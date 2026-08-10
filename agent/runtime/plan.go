@@ -18,8 +18,8 @@ import (
 // model's first response (step 2). The plan is validated in full BEFORE any
 // step executes (step b + TAD §11.3), so a rejected plan has zero side
 // effects.
-func (r *Runtime) executePlanMode(ctx context.Context, sess *Session, userMessage string, tools []llm.ToolDefinition, schemas map[string]map[string]any) (*Response, error) {
-	plan, err := r.requestPlan(ctx, sess, tools)
+func (r *Runtime) executePlanMode(ctx context.Context, sess *Session, userMessage string, tools []llm.ToolDefinition, schemas map[string]map[string]any, provider llm.Provider, approvals ApprovalGateway) (*Response, error) {
+	plan, err := r.requestPlan(ctx, sess, tools, provider)
 	if err != nil {
 		return r.planFailure(ctx, sess, "The model could not produce a parseable plan. "+err.Error())
 	}
@@ -27,7 +27,7 @@ func (r *Runtime) executePlanMode(ctx context.Context, sess *Session, userMessag
 		// One correction turn (TAD §11.3): the whole plan is rejected before
 		// any step has run.
 		plan, err = r.requestPlanWith(ctx, sess, tools,
-			"Your previous plan was rejected before any step executed: "+vErr.Error()+" Produce a corrected plan that satisfies all constraints.")
+			"Your previous plan was rejected before any step executed: "+vErr.Error()+" Produce a corrected plan that satisfies all constraints.", provider)
 		if err != nil {
 			return r.planFailure(ctx, sess, "The model could not produce a parseable plan. "+err.Error())
 		}
@@ -35,7 +35,7 @@ func (r *Runtime) executePlanMode(ctx context.Context, sess *Session, userMessag
 			return r.planFailure(ctx, sess, "The model could not produce a valid plan. No operations were performed. Validation: "+vErr.Error())
 		}
 	}
-	return r.runValidatedPlan(ctx, sess, userMessage, plan, schemas)
+	return r.runValidatedPlan(ctx, sess, userMessage, plan, schemas, provider, approvals)
 }
 
 // planFailure records a terminal response explaining that nothing ran and the
@@ -47,15 +47,15 @@ func (r *Runtime) planFailure(ctx context.Context, sess *Session, msg string) (*
 
 // requestPlan asks the model for a structured Plan (TAD §11.3). The response
 // format pins output to the planner's "plan" schema.
-func (r *Runtime) requestPlan(ctx context.Context, sess *Session, tools []llm.ToolDefinition) (*planner.Plan, error) {
-	return r.requestPlanWith(ctx, sess, tools, "")
+func (r *Runtime) requestPlan(ctx context.Context, sess *Session, tools []llm.ToolDefinition, provider llm.Provider) (*planner.Plan, error) {
+	return r.requestPlanWith(ctx, sess, tools, "", provider)
 }
 
-func (r *Runtime) requestPlanWith(ctx context.Context, sess *Session, tools []llm.ToolDefinition, extraPrompt string) (*planner.Plan, error) {
+func (r *Runtime) requestPlanWith(ctx context.Context, sess *Session, tools []llm.ToolDefinition, extraPrompt string, provider llm.Provider) (*planner.Plan, error) {
 	if extraPrompt != "" {
 		sess.addMessage(llm.Message{Role: "user", Content: extraPrompt})
 	}
-	resp, err := r.chat(ctx, sess, tools, planner.Format())
+	resp, err := r.chat(ctx, provider, sess, tools, planner.Format())
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +66,8 @@ func (r *Runtime) requestPlanWith(ctx context.Context, sess *Session, tools []ll
 // when any step requires approval (TAD §11.2 step b), then each step in order
 // with ref:<i> references resolved from earlier results (step c), then a
 // synthesized final summary.
-func (r *Runtime) runValidatedPlan(ctx context.Context, sess *Session, userMessage string, plan *planner.Plan, schemas map[string]map[string]any) (*Response, error) {
-	if approved, needs := r.planApproval(ctx, sess, plan, schemas); needs {
+func (r *Runtime) runValidatedPlan(ctx context.Context, sess *Session, userMessage string, plan *planner.Plan, schemas map[string]map[string]any, provider llm.Provider, approvals ApprovalGateway) (*Response, error) {
+	if approved, needs := r.planApproval(ctx, sess, plan, schemas, approvals); needs {
 		if !approved {
 			msg := "The plan was not approved; no steps were executed."
 			sess.addMessage(llm.Message{Role: "assistant", Content: msg})
@@ -87,13 +87,13 @@ func (r *Runtime) runValidatedPlan(ctx context.Context, sess *Session, userMessa
 			sess.addMessage(llm.Message{Role: "tool", Name: step.Operation, Content: "error: " + vErr.Error()})
 			continue
 		}
-		obs := r.executeTool(ctx, sess, step.Operation, args, userMessage, true)
+		obs := r.executeTool(ctx, sess, step.Operation, args, userMessage, true, approvals)
 		sess.addMessage(llm.Message{Role: "tool", Name: step.Operation, Content: obs})
 		results[i] = obs
 		steps++
 	}
 
-	final := r.synthesizeSummary(ctx, sess)
+	final := r.synthesizeSummary(ctx, sess, provider)
 	sess.addMessage(llm.Message{Role: "assistant", Content: final})
 	return &Response{Content: final, SessionID: sess.ID, ToolCalls: steps}, nil
 }
@@ -102,7 +102,7 @@ func (r *Runtime) runValidatedPlan(ctx context.Context, sess *Session, userMessa
 // one approval_required round trip whose reason is the strictest reason among
 // the plan's steps, after which every step executes without per-step prompts.
 // Returns (approved, needsApproval).
-func (r *Runtime) planApproval(ctx context.Context, sess *Session, plan *planner.Plan, schemas map[string]map[string]any) (bool, bool) {
+func (r *Runtime) planApproval(ctx context.Context, sess *Session, plan *planner.Plan, schemas map[string]map[string]any, approvals ApprovalGateway) (bool, bool) {
 	strict := ""
 	found := false
 	for _, step := range plan.Steps {
@@ -123,7 +123,7 @@ func (r *Runtime) planApproval(ctx context.Context, sess *Session, plan *planner
 		return true, false
 	}
 
-	if r.approvals == nil {
+	if approvals == nil {
 		return false, true
 	}
 	payload := ApprovalPayload{
@@ -135,7 +135,7 @@ func (r *Runtime) planApproval(ctx context.Context, sess *Session, plan *planner
 		},
 	}
 	r.emit(Event{Type: EventApprovalRequired, Approval: &payload})
-	resp, err := r.approvals.RequestApproval(ctx, payload)
+	resp, err := approvals.RequestApproval(ctx, payload)
 	if err != nil {
 		return false, true
 	}
@@ -220,8 +220,8 @@ func extractResult(res, field string) (any, error) {
 // synthesizeSummary asks the model to summarize the executed plan's results
 // into the final answer, falling back to a deterministic summary when that
 // call fails.
-func (r *Runtime) synthesizeSummary(ctx context.Context, sess *Session) string {
-	resp, err := r.chat(ctx, sess, nil, nil)
+func (r *Runtime) synthesizeSummary(ctx context.Context, sess *Session, provider llm.Provider) string {
+	resp, err := r.chat(ctx, provider, sess, nil, nil)
 	if err != nil {
 		return deterministicSummary(sess)
 	}

@@ -6,6 +6,8 @@
 package agent
 
 import (
+	"github.com/orjanda-framework/orjanda/agent/llm"
+	"github.com/orjanda-framework/orjanda/agent/runtime"
 	"github.com/orjanda-framework/orjanda/agent/tools"
 )
 
@@ -23,4 +25,18 @@ type Tool = tools.Tool
 // schema.RegisterValidator; call from package init or main.
 func RegisterTool(tool Tool) {
 	tools.RegisterCustomTool(tool)
+}
+
+// ExecuteOption, WithProvider, and WithApprovals are re-exported from
+// agent/runtime (TAD §3.3). They let a caller override the LLM provider and
+// approval gateway for a single Execute turn — which is the hook
+// orjanda/testing.MockLLM uses to script agent turns from a test (TAD §17).
+type ExecuteOption = runtime.ExecuteOption
+
+func WithProvider(p llm.Provider) runtime.ExecuteOption {
+	return runtime.WithProvider(p)
+}
+
+func WithApprovals(a runtime.ApprovalGateway) runtime.ExecuteOption {
+	return runtime.WithApprovals(a)
 }

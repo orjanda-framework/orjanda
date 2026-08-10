@@ -19,14 +19,14 @@ import (
 
 // executeToolCall runs one model-requested tool call and returns the
 // observation fed back to the LLM.
-func (r *Runtime) executeToolCall(ctx context.Context, sess *Session, call llm.ToolCall, prompt string) string {
+func (r *Runtime) executeToolCall(ctx context.Context, sess *Session, call llm.ToolCall, prompt string, approvals ApprovalGateway) string {
 	args := map[string]any{}
 	if call.Arguments != "" {
 		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
 			args = map[string]any{}
 		}
 	}
-	return r.executeTool(ctx, sess, call.Name, args, prompt, false)
+	return r.executeTool(ctx, sess, call.Name, args, prompt, false, approvals)
 }
 
 // executeTool is the Agent Executor entry point (TAD §3.3). Every write is
@@ -35,7 +35,7 @@ func (r *Runtime) executeToolCall(ctx context.Context, sess *Session, call llm.T
 // unconditionally so agent-initiated writes are flagged via_agent=true
 // (TAD §12.2, §13.3). planApproved is true only for steps of a plan that
 // already passed plan-level human approval (TAD §11.2 step b).
-func (r *Runtime) executeTool(ctx context.Context, sess *Session, name string, args map[string]any, prompt string, planApproved bool) string {
+func (r *Runtime) executeTool(ctx context.Context, sess *Session, name string, args map[string]any, prompt string, planApproved bool, approvals ApprovalGateway) string {
 	id := auth.FromContext(ctx)
 	r.emit(Event{Type: EventToolStart, Tool: name})
 
@@ -62,7 +62,7 @@ func (r *Runtime) executeTool(ctx context.Context, sess *Session, name string, a
 		}
 		a := r.safety.RequiresApprovalWithReason(ctx, id, info)
 		if a.Required {
-			obs, newArgs, ok := r.gateApproval(ctx, sess, name, args, a)
+			obs, newArgs, ok := r.gateApproval(ctx, sess, name, args, a, approvals)
 			if !ok {
 				r.emit(Event{Type: EventToolEnd, Tool: name})
 				return obs
@@ -92,8 +92,8 @@ func (r *Runtime) executeTool(ctx context.Context, sess *Session, name string, a
 // it returns (args, true) with the human's Modify payload substituted when the
 // human chose to amend the arguments (PRD §38.2). On denial it returns an
 // observation describing the denial.
-func (r *Runtime) gateApproval(ctx context.Context, sess *Session, name string, args map[string]any, a safety.Approval) (string, map[string]any, bool) {
-	if r.approvals == nil {
+func (r *Runtime) gateApproval(ctx context.Context, sess *Session, name string, args map[string]any, a safety.Approval, approvals ApprovalGateway) (string, map[string]any, bool) {
+	if approvals == nil {
 		return "error: approval required for " + name + " but no approval gateway is configured", nil, false
 	}
 	payload := ApprovalPayload{
@@ -106,7 +106,7 @@ func (r *Runtime) gateApproval(ctx context.Context, sess *Session, name string, 
 		},
 	}
 	r.emit(Event{Type: EventApprovalRequired, Approval: &payload})
-	resp, err := r.approvals.RequestApproval(ctx, payload)
+	resp, err := approvals.RequestApproval(ctx, payload)
 	if err != nil {
 		return "error: approval flow failed: " + err.Error(), nil, false
 	}
