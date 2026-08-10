@@ -1,0 +1,10 @@
+{
+  "Employee": [
+    { "FirstName": "Ada", "LastName": "Lovelace", "Email": "ada@test.com", "Department": "Engineering" },
+    { "FirstName": "Grace", "LastName": "Hopper", "Email": "grace@test.com", "Department": "Engineering" },
+    { "FirstName": "Alan", "LastName": "Turing", "Email": "alan@test.com", "Department": "Engineering" },
+    { "FirstName": "Edsger", "LastName": "Dijkstra", "Email": "edsger@test.com", "Department": "Engineering" },
+    { "FirstName": "Barbara", "LastName": "Liskov", "Email": "barbara@test.com", "Department": "Engineering" },
+    { "FirstName": "Dennis", "LastName": "Ritchie", "Email": "dennis@test.com", "Department": "Sales" }
+  ]
+}
