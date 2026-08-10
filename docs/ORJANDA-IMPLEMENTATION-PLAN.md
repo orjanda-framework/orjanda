@@ -294,11 +294,11 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 6 (Metadata API, REST API), Phase 8 (Agent Chat WebSocket must exist to build the chat panel against).
 
 **Completion criteria:**
-- [ ] Registering a new Document in the backend (no frontend code change) makes it appear in the sidebar, with a working auto-generated form and list, on next page load (PRD §17.3's explicit non-regression requirement).
-- [ ] `ComponentRegistry` resolution order is verified with all three override levels registered simultaneously for the same field.
-- [ ] Agent Chat UI correctly renders a full PRD §38.2-equivalent approval round trip, including Approve/Deny/Modify.
-- [ ] `@orjanda/codegen` output for the Phase 1 reference Application type-checks (`tsc --noEmit`) and its field types match the Phase 7 agent tool JSON Schema mapping one-for-one (shared table cross-check, TAD §10.2).
-- [ ] Production build produces a single binary; `go build` with no separate frontend deploy step required.
+- [x] Registering a new Document in the backend (no frontend code change) makes it appear in the sidebar, with a working auto-generated form and list, on next page load (PRD §17.3's explicit non-regression requirement).
+- [x] `ComponentRegistry` resolution order is verified with all three override levels registered simultaneously for the same field.
+- [x] Agent Chat UI correctly renders a full PRD §38.2-equivalent approval round trip, including Approve/Deny/Modify.
+- [x] `@orjanda/codegen` output for the Phase 1 reference Application type-checks (`tsc --noEmit`) and its field types match the Phase 7 agent tool JSON Schema mapping one-for-one (shared table cross-check, TAD §10.2).
+- [x] Production build produces a single binary; `go build` with no separate frontend deploy step required.
 
 ---
 

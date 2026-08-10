@@ -2,10 +2,14 @@
 package orjanda
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/orjanda-framework/orjanda/agent/llm"
+	"github.com/orjanda-framework/orjanda/agent/runtime"
+	"github.com/orjanda-framework/orjanda/agent/safety"
 	"github.com/orjanda-framework/orjanda/agent/tools"
 	"github.com/orjanda-framework/orjanda/api"
 	"github.com/orjanda-framework/orjanda/app"
@@ -20,12 +24,13 @@ import (
 	"github.com/orjanda-framework/orjanda/event"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
+	"github.com/orjanda-framework/orjanda/ui"
 	"github.com/orjanda-framework/orjanda/workflow"
 )
 
 // Site is the central composition root wiring database, schema registry, permission engine,
 // event bus, audit log, cache, auth provider, document engine, workflow engine, agent tool
-// registry, and HTTP router. See TAD §12.4.
+// registry, admin UI page registry, and HTTP router. See TAD §12.4.
 type Site struct {
 	Config      config.Config
 	Registry    schema.Registry
@@ -38,8 +43,10 @@ type Site struct {
 	DocEngine   *document.Engine
 	Workflows   workflow.Engine
 	Tools       tools.ToolRegistry
+	Pages       ui.Registry
 	Router      *chi.Mux
 	apps        []app.Definition
+	ui          http.Handler
 }
 
 // NewSite initializes a new Site with the provided configuration.
@@ -81,6 +88,7 @@ func NewSite(cfg config.Config) (*Site, error) {
 		AuditLog: auditLog,
 		Cache:    cacheStore,
 		Auth:     jwtProvider,
+		Pages:    ui.NewRegistry(),
 		apps:     make([]app.Definition, 0),
 	}
 
@@ -129,16 +137,65 @@ func (s *Site) Compile() error {
 		PermEngine:   s.Permissions,
 		Registry:     s.Registry,
 		DocEngine:    s.DocEngine,
+		Database:     s.DB,
+		Pages:        s.Pages,
+		AgentRuntime: s.agentRuntime(),
 	})
 
+	s.ui = newSPAHandler(s.Router)
 	return nil
 }
 
-// ServeHTTP implements http.Handler, delegating to the inner Chi router.
-func (s *Site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if s.Router != nil {
-		s.Router.ServeHTTP(w, r)
-	} else {
-		http.NotFound(w, r)
+// agentRuntime builds the Phase 8 runtime options shared across agent chat
+// connections. The Agent Chat UI (TAD §6.2) requires this to be non-nil; when
+// no LLM provider is resolvable the WebSocket route is simply not mounted and
+// the chat panel reports the endpoint as unavailable.
+func (s *Site) agentRuntime() *runtime.Options {
+	if s.Config.LLM.Providers == nil {
+		return nil
 	}
+	provider, err := llm.ProviderFromConfig(&s.Config, "")
+	if err != nil {
+		slog.Warn("site.agent.disabled", "error", err)
+		return nil
+	}
+
+	policy := safety.SafetyPolicy{
+		AutoApprove:       []string{"read", "search", "list"},
+		MaxBulkOperations: s.Config.LLM.Safety.MaxBulkOperations,
+		RateLimit:         safety.RateLimit{OperationsPerMinute: 60, Scope: "user"},
+	}
+
+	return &runtime.Options{
+		Provider:   provider,
+		Tools:      s.Tools,
+		PermEngine: s.Permissions,
+		Registry:   s.Registry,
+		DocEngine:  s.DocEngine,
+		Workflow:   s.Workflows,
+		Safety:     safety.NewLayer(policy, s.Cache),
+	}
+}
+
+// RegisterPage adds a custom Admin UI page (TAD §9.1 / PRD §18.3).
+func (s *Site) RegisterPage(p ui.Page) {
+	s.Pages.RegisterPage(p)
+}
+
+// HTTPHandler returns the composed request handler: API routes plus the
+// embedded Admin UI single-page application (PRD §17.4). It is the handler the
+// server package serves; ServeHTTP delegates to it.
+func (s *Site) HTTPHandler() http.Handler {
+	if s.ui != nil {
+		return s.ui
+	}
+	if s.Router != nil {
+		return s.Router
+	}
+	return http.NotFoundHandler()
+}
+
+// ServeHTTP implements http.Handler, delegating to the composed handler.
+func (s *Site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.HTTPHandler().ServeHTTP(w, r)
 }

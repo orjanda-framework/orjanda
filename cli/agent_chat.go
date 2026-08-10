@@ -121,7 +121,7 @@ func chatRuntimeOptions(ctx context.Context, cfg *config.Config, model string) (
 		return opts, err
 	}
 
-	provider, err := llmProvider(cfg, model)
+	provider, err := llm.ProviderFromConfig(cfg, model)
 	if err != nil {
 		return opts, err
 	}
@@ -161,29 +161,6 @@ type tableCreater interface {
 	dal.Database
 	CreateTables(docs []*schema.CompiledDoc) error
 	RegisterDocs(docs []*schema.CompiledDoc)
-}
-
-func llmProvider(cfg *config.Config, model string) (llm.Provider, error) {
-	name := cfg.LLM.DefaultProvider
-	if name == "" {
-		name = "openai"
-	}
-	p, ok := cfg.LLM.Providers[name]
-	if !ok {
-		return nil, fmt.Errorf("config: llm.providers.%s is not configured", name)
-	}
-	opts := llm.ProviderOptions{APIKey: p.APIKey, Model: p.Model, MaxTokens: p.MaxTokens}
-	if model != "" {
-		opts.Model = model
-	}
-	switch name {
-	case "openai":
-		return llm.NewOpenAIProvider(opts), nil
-	case "anthropic":
-		return llm.NewAnthropicProvider(opts), nil
-	default:
-		return nil, fmt.Errorf("config: unsupported llm provider %q", name)
-	}
 }
 
 // terminalApproval prompts the operator for every approval_required round trip

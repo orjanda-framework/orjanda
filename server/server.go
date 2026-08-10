@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/orjanda-framework/orjanda"
 )
 
-// Assemble returns the HTTP router for the given Site.
-func Assemble(site *orjanda.Site) *chi.Mux {
-	return site.Router
+// Assemble returns the composed HTTP handler (API + embedded Admin UI) for the
+// given Site.
+func Assemble(site *orjanda.Site) http.Handler {
+	return site.HTTPHandler()
 }
 
 // Run starts the HTTP server for site and blocks until context cancellation or error.
@@ -29,7 +29,7 @@ func Run(ctx context.Context, site *orjanda.Site) error {
 
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: site.Router,
+		Handler: site.HTTPHandler(),
 	}
 
 	errCh := make(chan error, 1)

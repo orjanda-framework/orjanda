@@ -9,6 +9,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -55,6 +56,23 @@ type Event struct {
 	Tool     string           `json:"tool,omitempty"`
 	Success  bool             `json:"success,omitempty"`
 	Approval *ApprovalPayload `json:"approval,omitempty"`
+}
+
+// MarshalJSON flattens an approval_required event to the TAD §6.2 wire shape
+// (action_id and details at top level) instead of the internal nested
+// approval object:
+//
+//	{"type":"approval_required","action_id":"req-123","details":{...}}
+func (e Event) MarshalJSON() ([]byte, error) {
+	if e.Type == EventApprovalRequired && e.Approval != nil {
+		return json.Marshal(struct {
+			Type     string          `json:"type"`
+			ActionID string          `json:"action_id"`
+			Details  ApprovalDetails `json:"details"`
+		}{Type: e.Type, ActionID: e.Approval.ActionID, Details: e.Approval.Details})
+	}
+	type alias Event
+	return json.Marshal(alias(e))
 }
 
 // ApprovalPayload is the extended approval_required payload of TAD §12.3:

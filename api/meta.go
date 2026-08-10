@@ -38,12 +38,15 @@ type DocMetaResponse struct {
 
 type FieldMeta struct {
 	Name       string   `json:"name"`
+	Column     string   `json:"db_column"`
 	Type       string   `json:"type"`
 	Label      string   `json:"label"`
 	Required   bool     `json:"required"`
 	Options    []string `json:"options,omitempty"`
 	LinkTarget string   `json:"link,omitempty"`
 	Hidden     bool     `json:"hidden"`
+	Permission string   `json:"permission,omitempty"`
+	ReadOnly   bool     `json:"read_only,omitempty"`
 }
 
 // ListDocTypes handles GET /api/v1/meta
@@ -93,12 +96,15 @@ func (h *MetaHandler) GetDocMeta(w http.ResponseWriter, r *http.Request) {
 		}
 		fieldsMeta = append(fieldsMeta, FieldMeta{
 			Name:       f.Name,
+			Column:     f.DBColumn,
 			Type:       string(f.Type),
 			Label:      f.Label,
 			Required:   f.Required,
 			Options:    f.Options,
 			LinkTarget: f.LinkTarget,
 			Hidden:     f.Hidden,
+			Permission: f.PermissionRole,
+			ReadOnly:   f.ReadOnly,
 		})
 	}
 

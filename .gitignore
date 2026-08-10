@@ -1,7 +1,7 @@
 # ── Binaries ────────────────────────────────────────────────────────────────
 /orjanda
 /bin/
-dist/
+/dist/
 
 # ── Go toolchain ─────────────────────────────────────────────────────────────
 # Test cache and build cache are managed by $GOCACHE; nothing to ignore there.
@@ -44,8 +44,10 @@ Thumbs.db
 .golangci-lint-cache/
 
 # ── Node (orjanda-ui / @orjanda/codegen, Phase 9) ───────────────────────────
+# orjanda-ui/dist is COMMITTED: the single Go binary embeds the production
+# Vite build via embed.FS, so `go build` must never depend on a frontend step.
+# Regenerate it with `npm run build` in orjanda-ui/.
 node_modules/
-orjanda-ui/dist/
 orjanda-ui/.vite/
 
 # ── Temporary / scratch ──────────────────────────────────────────────────────

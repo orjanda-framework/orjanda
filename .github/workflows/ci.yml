@@ -55,3 +55,50 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+
+  frontend:
+    name: Admin UI (typecheck, tests, build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: orjanda-ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: orjanda-ui
+        run: npm ci
+
+      # Phase 9 criterion: the generated TypeScript SDK passes tsc --noEmit.
+      - name: Typecheck
+        working-directory: orjanda-ui
+        run: npm run typecheck
+
+      # Phase 9 criterion: ComponentRegistry resolution order and the Agent
+      # Chat approval round-trip (Approve/Deny/Modify) are tested.
+      - name: Tests
+        working-directory: orjanda-ui
+        run: npm test
+
+      # Phase 9 criterion: production build overwrites the committed dist the
+      # Go binary embeds (single-binary deploy, no separate frontend step).
+      - name: Build
+        working-directory: orjanda-ui
+        run: npm run build
+
+      # Verify the freshly built dist still embeds cleanly and the Go binary
+      # builds without a separate frontend deploy step.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Go build embeds the Admin UI
+        run: go build ./...

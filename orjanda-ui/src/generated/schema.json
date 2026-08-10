@@ -1,0 +1,249 @@
+[
+  {
+    "name": "DummyParent",
+    "app": "test_app",
+    "module": "Core",
+    "title_field": "Name",
+    "searchable": true,
+    "submittable": true,
+    "fields": [
+      {
+        "name": "ID",
+        "db_column": "id",
+        "type": "string",
+        "label": "ID",
+        "required": true,
+        "hidden": false
+      },
+      {
+        "name": "Name",
+        "db_column": "name",
+        "type": "string",
+        "label": "Name",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "Owner",
+        "db_column": "owner",
+        "type": "string",
+        "label": "Owner",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "CreatedAt",
+        "db_column": "created_at",
+        "type": "datetime",
+        "label": "Created At",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "UpdatedAt",
+        "db_column": "updated_at",
+        "type": "datetime",
+        "label": "Updated At",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "ModifiedBy",
+        "db_column": "modified_by",
+        "type": "string",
+        "label": "Modified By",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "DocStatus",
+        "db_column": "doc_status",
+        "type": "int",
+        "label": "Doc Status",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "Deleted",
+        "db_column": "deleted",
+        "type": "bool",
+        "label": "Deleted",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "Name",
+        "db_column": "name",
+        "type": "string",
+        "label": "Name",
+        "required": true,
+        "hidden": false
+      },
+      {
+        "name": "Status",
+        "db_column": "status",
+        "type": "string",
+        "label": "Status",
+        "required": false,
+        "options": [
+          "Draft",
+          "Active"
+        ],
+        "hidden": false
+      },
+      {
+        "name": "Target",
+        "db_column": "target",
+        "type": "link",
+        "label": "Target",
+        "required": false,
+        "link": "DummyTarget",
+        "hidden": false
+      },
+      {
+        "name": "Amount",
+        "db_column": "amount",
+        "type": "currency",
+        "label": "Amount",
+        "required": false,
+        "hidden": false
+      }
+    ],
+    "child_tables": [
+      {
+        "field_name": "Skills",
+        "doc_type": "dummy_child",
+        "type_name": "DummyChild",
+        "fields": [
+          {
+            "name": "ID",
+            "db_column": "id",
+            "type": "string",
+            "label": "ID",
+            "required": true,
+            "hidden": false
+          },
+          {
+            "name": "ParentID",
+            "db_column": "parent_id",
+            "type": "string",
+            "label": "Parent ID",
+            "required": true,
+            "hidden": false
+          },
+          {
+            "name": "Idx",
+            "db_column": "idx",
+            "type": "int",
+            "label": "Idx",
+            "required": true,
+            "hidden": false
+          },
+          {
+            "name": "Skill",
+            "db_column": "skill",
+            "type": "string",
+            "label": "Skill",
+            "required": true,
+            "hidden": false
+          }
+        ]
+      }
+    ],
+    "permissions": {
+      "can_read": true,
+      "can_write": true,
+      "can_create": true,
+      "can_delete": true,
+      "can_submit": false
+    }
+  },
+  {
+    "name": "DummyTarget",
+    "app": "test_app",
+    "title_field": "",
+    "searchable": false,
+    "submittable": false,
+    "fields": [
+      {
+        "name": "ID",
+        "db_column": "id",
+        "type": "string",
+        "label": "ID",
+        "required": true,
+        "hidden": false
+      },
+      {
+        "name": "Name",
+        "db_column": "name",
+        "type": "string",
+        "label": "Name",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "Owner",
+        "db_column": "owner",
+        "type": "string",
+        "label": "Owner",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "CreatedAt",
+        "db_column": "created_at",
+        "type": "datetime",
+        "label": "Created At",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "UpdatedAt",
+        "db_column": "updated_at",
+        "type": "datetime",
+        "label": "Updated At",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "ModifiedBy",
+        "db_column": "modified_by",
+        "type": "string",
+        "label": "Modified By",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "DocStatus",
+        "db_column": "doc_status",
+        "type": "int",
+        "label": "Doc Status",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "Deleted",
+        "db_column": "deleted",
+        "type": "bool",
+        "label": "Deleted",
+        "required": false,
+        "hidden": false
+      },
+      {
+        "name": "Label",
+        "db_column": "label",
+        "type": "string",
+        "label": "Label",
+        "required": true,
+        "hidden": false
+      }
+    ],
+    "permissions": {
+      "can_read": true,
+      "can_write": true,
+      "can_create": true,
+      "can_delete": true,
+      "can_submit": true
+    }
+  }
+]

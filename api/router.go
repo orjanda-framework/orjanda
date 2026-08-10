@@ -11,9 +11,11 @@ import (
 	"github.com/orjanda-framework/orjanda/api/rpc"
 	"github.com/orjanda-framework/orjanda/auth"
 	"github.com/orjanda-framework/orjanda/cache"
+	"github.com/orjanda-framework/orjanda/dal"
 	"github.com/orjanda-framework/orjanda/document"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
+	"github.com/orjanda-framework/orjanda/ui"
 )
 
 // RouterOptions holds dependencies required for mounting API routes.
@@ -26,6 +28,12 @@ type RouterOptions struct {
 	PermEngine   perm.Engine
 	Registry     schema.Registry
 	DocEngine    *document.Engine
+	// Database is required to mount the built-in login/refresh routes
+	// (PRD §15.1); when nil the routes are skipped.
+	Database dal.Database
+	// Pages carries ui.Page registrations surfaced by GET /api/v1/meta/pages
+	// for the Admin UI sidebar (PRD §18.3). Nil skips the route.
+	Pages ui.Registry
 	// AgentRuntime carries the shared runtime options for the agent chat
 	// WebSocket; when nil the /api/v1/agent/stream route is not mounted.
 	// Sink and Approvals are per-connection and need not be set here.
@@ -48,12 +56,25 @@ func NewRouter(opts RouterOptions) *chi.Mux {
 	restHandler := rest.NewHandler(opts.DocEngine)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// Built-in email/password login (PRD §15.1). Mounted outside the
+		// permission middleware: the caller has no identity yet.
+		if opts.Database != nil {
+			authHandler := NewAuthHandler(opts.Database, opts.Registry, opts.AuthProvider)
+			if authHandler.enabled {
+				r.Post("/auth/login", authHandler.Login)
+				r.Post("/auth/refresh", authHandler.Refresh)
+			}
+		}
+
 		// Metadata API
 		if opts.Registry != nil {
 			metaHandler := NewMetaHandler(opts.Registry, opts.PermEngine)
 			r.Get("/meta", metaHandler.ListDocTypes)
 			r.Get("/meta/{doctype}", metaHandler.GetDocMeta)
 			r.Get("/meta/{doctype}/links", metaHandler.GetLinks)
+		}
+		if opts.Pages != nil {
+			r.Get("/meta/pages", NewPagesHandler(opts.Pages).List)
 		}
 
 		// Agent Chat WebSocket (TAD §6.2, §12.3)
