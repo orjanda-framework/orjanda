@@ -11,7 +11,7 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
-	var module, replace string
+	var module, replace, dir string
 
 	cmd := &cobra.Command{
 		Use:   "init <name>",
@@ -19,18 +19,34 @@ func newInitCmd() *cobra.Command {
 		Long:  "Scaffolds go.mod + main.go importing orjanda-core, an orjanda.yaml, and the modules/migrations layout (TAD §16, PRD §21.2).",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(args[0], module, replace)
+			return runInit(args[0], module, replace, dir)
 		},
 	}
 
 	cmd.Flags().StringVar(&module, "module", "", "Go module path (defaults to the app name)")
 	cmd.Flags().StringVar(&replace, "replace", "", "local path to the orjanda framework for a go.mod replace directive (defaults to ORJANDA_FRAMEWORK_PATH or a discovered sibling checkout)")
+	cmd.Flags().StringVar(&dir, "dir", "", "destination directory for the Application (defaults to the app name); the app name stays the first argument")
 
 	return cmd
 }
 
-func runInit(name, module, replace string) error {
-	dir := name
+// runInit scaffolds an Application. dir separates the app name from where the
+// files land (Django startproject-style): the first argument is always the app
+// name, --dir chooses the destination. When dir is empty it defaults to the
+// app name, mirroring Django's `startproject name` creating ./<name>.
+func runInit(appName, module, replace, dir string) error {
+	return runInitScaffold(appName, module, replace, dir, tidyAppModule)
+}
+
+// runInitScaffold is runInit with an injectable dependency resolver so unit
+// tests can exercise the full scaffold without shelling out to `go mod tidy`.
+func runInitScaffold(appName, module, replace, dir string, tidy func(dir string) error) error {
+	if err := validateAppName(appName); err != nil {
+		return err
+	}
+	if dir == "" {
+		dir = appName
+	}
 	if _, err := os.Stat(dir); err == nil {
 		return errf("directory %q already exists", dir)
 	}
@@ -40,14 +56,31 @@ func runInit(name, module, replace string) error {
 
 	modulePath := module
 	if modulePath == "" {
-		modulePath = name
+		modulePath = appName
 	}
 	if replace == "" {
 		replace = discoverFrameworkPath(dir)
 	}
 
-	m := &manifest{AppName: name, ModulePath: modulePath}
+	m := &manifest{AppName: appName, ModulePath: modulePath}
+	if err := scaffoldApp(dir, m, replace); err != nil {
+		return err
+	}
 
+	// Resolve the app's dependency graph so the first `go run .` (delegated
+	// commands) and `go build` work immediately.
+	if err := tidy(dir); err != nil {
+		return errf("resolving module dependencies: %w", err)
+	}
+
+	printInitSummary(dir, m, replace)
+	return nil
+}
+
+// scaffoldApp writes the Application's starter files and migrations/ inside
+// dir. go.mod, app.go, and the manifest derive from the manifest's AppName and
+// ModulePath, never from the destination dir.
+func scaffoldApp(dir string, m *manifest, replace string) error {
 	files := map[string][]byte{
 		"go.mod":       renderGoMod(m, replace),
 		"main.go":      renderMainGo(),
@@ -65,15 +98,38 @@ func runInit(name, module, replace string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "migrations"), 0o755); err != nil {
 		return errf("creating migrations/: %w", err)
 	}
-
-	// Resolve the app's dependency graph so the first `go run .` (delegated
-	// commands) and `go build` work immediately.
-	if err := tidyAppModule(dir); err != nil {
-		return errf("resolving module dependencies: %w", err)
-	}
-
-	printInitSummary(dir, m, replace)
 	return nil
+}
+
+// validateAppName rejects values that cannot be a single application name:
+// empty, `.`/`..`, or anything containing a path separator. A path-like value
+// is ambiguous — Django rejects it too (startproject validates the name as an
+// identifier) — so `orjanda init playground/myapp` fails loudly and points the
+// user at --dir rather than silently treating the path as the app name.
+func validateAppName(name string) error {
+	if name == "" {
+		return errf("application name required (e.g. `orjanda init myapp`)")
+	}
+	if name == "." || name == ".." {
+		return errf("application name %q is not valid — pass the app name and use --dir to choose the destination directory", name)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		if app, dir := splitNameHints(name); app != "" {
+			return errf("application name %q looks like a path — pass the app name alone and use --dir for the destination, e.g. `orjanda init %s --dir %s`", name, app, dir)
+		}
+		return errf("application name %q looks like a path — pass the app name alone and use --dir for the destination directory", name)
+	}
+	return nil
+}
+
+// splitNameHints suggests an app name and destination directory from a
+// path-like value; used only for error guidance.
+func splitNameHints(name string) (app, dir string) {
+	i := strings.LastIndexAny(name, `/\`)
+	if i < 0 || i == len(name)-1 {
+		return "", ""
+	}
+	return name[i+1:], name
 }
 
 // tidyAppModule runs `go mod tidy` inside dir, resolving the orjanda replace

@@ -1030,7 +1030,7 @@ Formalizes PRD §21 (CLI and Developer Experience), which listed commands withou
 
 | Command | Underlying call | Key flags |
 |---|---|---|
-| `orjanda init <name>` | Scaffolds `go.mod` + `main.go` importing `orjanda-core` | `--module` (Go module path) |
+| `orjanda init <name>` | Scaffolds `go.mod` + `main.go` importing `orjanda-core` | `--module` (Go module path), `--dir` (destination directory; defaults to the app name) |
 | `orjanda new document <name>` | Writes `documents/{snake}.go` from a `text/template` scaffold | `--module`, `--submittable` |
 | `orjanda new module <name>` | Creates `modules/{name}/{documents,hooks,workflows,api,ui}/` | — |
 | `orjanda serve` | `orjanda.NewSite` → `Registry.Compile` → dev-only auto-`CreateTable` for missing tables → `server.Run`; Registry compile errors **warn and continue** serving unaffected Documents | `--port`, `--config` |
