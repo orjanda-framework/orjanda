@@ -9,34 +9,41 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/orjanda-framework/orjanda"
 	"github.com/orjanda-framework/orjanda/agent/llm"
 	"github.com/orjanda-framework/orjanda/agent/runtime"
 	"github.com/orjanda-framework/orjanda/agent/safety"
-	"github.com/orjanda-framework/orjanda/agent/tools"
 	"github.com/orjanda-framework/orjanda/auth"
 	"github.com/orjanda-framework/orjanda/cache"
 	"github.com/orjanda-framework/orjanda/config"
-	"github.com/orjanda-framework/orjanda/dal"
-	"github.com/orjanda-framework/orjanda/dal/dialect/postgres"
-	"github.com/orjanda-framework/orjanda/dal/dialect/sqlite"
-	"github.com/orjanda-framework/orjanda/document"
-	core "github.com/orjanda-framework/orjanda/orjanda-core"
-	"github.com/orjanda-framework/orjanda/perm"
-	"github.com/orjanda-framework/orjanda/schema"
-	"github.com/orjanda-framework/orjanda/workflow"
 )
+
+func newAgentCmd(b siteBuilder) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "agent",
+		Short: "Embedded AI agent tooling",
+	}
+	cmd.AddCommand(newAgentChatCmd(b))
+	return cmd
+}
 
 // newAgentChatCmd builds the `orjanda agent chat` terminal-mode entry point
 // (TAD §16 / PRD §21). It drives the same Runtime.Execute loop the WebSocket
 // endpoint drives, printing streaming events inline instead of over the wire.
-func newAgentChatCmd() *cobra.Command {
+func newAgentChatCmd(b siteBuilder) *cobra.Command {
 	var cfgFile, user, model string
 
 	cmd := &cobra.Command{
 		Use:   "chat",
 		Short: "Terminal-mode agent chat against the local site",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runAgentChat(cmd.Context(), cfgFile, user, model)
+			ctx := cmd.Context()
+			args := []string{"chat", "--config", cfgFile, "--user", user, "--model", model}
+			if delegated, err := b.delegateToApp(ctx, "agent", args...); delegated || err != nil {
+				return err
+			}
+			return runAgentChat(ctx, b, cfgFile, user, model)
 		},
 	}
 
@@ -47,13 +54,29 @@ func newAgentChatCmd() *cobra.Command {
 	return cmd
 }
 
-func runAgentChat(ctx context.Context, cfgFile, user, model string) error {
+func runAgentChat(ctx context.Context, b siteBuilder, cfgFile, user, model string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return err
 	}
 
-	opts, err := chatRuntimeOptions(ctx, cfg, model)
+	site, err := b.newSite(*cfg)
+	if err != nil {
+		return err
+	}
+	if err := site.Compile(); err != nil {
+		return err
+	}
+	// The chat loop reads/writes Documents, so tables must exist and the
+	// docType→table mappings must be wired (same as serve's dev auto-create).
+	if tc, ok := site.DB.(tableCreater); ok {
+		if err := tc.CreateTables(site.Registry.List()); err != nil {
+			return err
+		}
+		tc.RegisterDocs(site.Registry.List())
+	}
+
+	opts, err := runtimeOptionsFromSite(site, model)
 	if err != nil {
 		return err
 	}
@@ -85,82 +108,29 @@ func runAgentChat(ctx context.Context, cfgFile, user, model string) error {
 	return scanner.Err()
 }
 
-// chatRuntimeOptions builds the runtime options for a local site: the core
-// Application's documents over the configured database, wired exactly like the
-// WebSocket endpoint wires them.
-func chatRuntimeOptions(ctx context.Context, cfg *config.Config, model string) (runtime.Options, error) {
-	var opts runtime.Options
-	rawDB, err := openDatabase(cfg.Database)
+// runtimeOptionsFromSite derives agent runtime options from a compiled site,
+// mirroring the WebSocket endpoint's wiring (TAD §12.4).
+func runtimeOptionsFromSite(site *orjanda.Site, model string) (runtime.Options, error) {
+	provider, err := llm.ProviderFromConfig(&site.Config, model)
 	if err != nil {
-		return opts, err
-	}
-	db, ok := rawDB.(tableCreater)
-	if !ok {
-		return opts, fmt.Errorf("config: database driver %q does not support table creation", cfg.Database.Driver)
-	}
-
-	reg := schema.NewRegistry()
-	for _, d := range []schema.Document{&core.User{}, &core.Role{}, &core.RolePermission{}} {
-		if err := reg.Register("core", d); err != nil {
-			return opts, err
-		}
-	}
-	if err := reg.Compile(); err != nil {
-		return opts, err
-	}
-	if err := db.CreateTables(reg.List()); err != nil {
-		return opts, err
-	}
-	db.RegisterDocs(reg.List())
-
-	permEngine := perm.NewEngine(reg)
-	wfEngine := workflow.NewEngine(db, reg, permEngine, nil, nil)
-
-	tr := tools.NewToolRegistry(permEngine, wfEngine)
-	if err := tr.Compile(reg); err != nil {
-		return opts, err
-	}
-
-	provider, err := llm.ProviderFromConfig(cfg, model)
-	if err != nil {
-		return opts, err
+		return runtime.Options{}, err
 	}
 
 	policy := safety.SafetyPolicy{
 		AutoApprove:       []string{"read", "search", "list"},
-		MaxBulkOperations: cfg.LLM.Safety.MaxBulkOperations,
+		MaxBulkOperations: site.Config.LLM.Safety.MaxBulkOperations,
 		RateLimit:         safety.RateLimit{OperationsPerMinute: 60, Scope: "user"},
 	}
 
-	opts = runtime.Options{
-		Provider:  provider,
-		Registry:  reg,
-		DocEngine: document.NewWithServices(db, reg, permEngine, nil, nil),
-		Workflow:  wfEngine,
-		Safety:    safety.NewLayer(policy, cache.NewLRUStore(1000)),
-		Tools:     tr,
-	}
-	return opts, nil
-}
-
-func openDatabase(cfg config.DatabaseConfig) (dal.Database, error) {
-	switch cfg.Driver {
-	case "sqlite":
-		return sqlite.Open(cfg.DSN)
-	case "postgres":
-		return postgres.Open(cfg.DSN)
-	default:
-		return nil, fmt.Errorf("config: database.driver %q is not supported; choose postgres or sqlite", cfg.Driver)
-	}
-}
-
-// tableCreater is a dal.Database that can also create and register its tables.
-// Both concrete dialects implement it; the interfaces are kept separate in the
-// TAD on purpose (schema management goes through the Migrator in production).
-type tableCreater interface {
-	dal.Database
-	CreateTables(docs []*schema.CompiledDoc) error
-	RegisterDocs(docs []*schema.CompiledDoc)
+	return runtime.Options{
+		Provider:   provider,
+		Tools:      site.Tools,
+		PermEngine: site.Permissions,
+		Registry:   site.Registry,
+		DocEngine:  site.DocEngine,
+		Workflow:   site.Workflows,
+		Safety:     safety.NewLayer(policy, cache.NewLRUStore(1000)),
+	}, nil
 }
 
 // terminalApproval prompts the operator for every approval_required round trip

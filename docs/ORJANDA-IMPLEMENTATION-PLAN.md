@@ -316,9 +316,9 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** Phase 9 (`serve` must start the full stack including the Admin UI); Phase 2 (`migrate` subcommands); Phase 8 (`agent chat`).
 
 **Completion criteria:**
-- [ ] The PRD §37 "Example Developer Workflow" script runs verbatim against the built CLI, end to end, on a clean machine: `init` → four `new document` calls → manual edit → `serve` → agent chat interaction → `migrate diff` → `test`.
-- [ ] `orjanda bench` refuses to start against a database with pending migrations; `orjanda serve` starts anyway and logs a warning.
-- [ ] `orjanda registry describe Employee --json` output matches the shape consumed by Phase 9's `@orjanda/codegen`.
+- [x] The PRD §37 "Example Developer Workflow" script runs verbatim against the built CLI, end to end, on a clean machine: `init` → four `new document` calls → manual edit → `serve` → agent chat interaction → `migrate diff` → `test`.
+- [x] `orjanda bench` refuses to start against a database with pending migrations; `orjanda serve` starts anyway and logs a warning.
+- [x] `orjanda registry describe Employee --json` output matches the shape consumed by Phase 9's `@orjanda/codegen`.
 
 ---
 

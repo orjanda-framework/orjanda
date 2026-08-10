@@ -54,11 +54,16 @@ func (d *DB) RegisterDoc(docType, tableName string) {
 	d.tableNames[docType] = tableName
 }
 
-// RegisterDocs registers mappings from a slice of CompiledDocs.
+// RegisterDocs registers mappings from a slice of CompiledDocs, including the
+// parent→child table mappings so child-table writes (e.g. core.UserRole) resolve.
 func (d *DB) RegisterDocs(docs []*schema.CompiledDoc) {
 	for _, doc := range docs {
 		d.tableNames[doc.Name] = doc.TableName
 		d.compiledDocs[doc.Name] = doc
+		for _, child := range doc.ChildTables {
+			// Child DocType is singular snake (TAD §2.1); table is pluralized.
+			d.tableNames[child.TypeName] = child.DocType + "s"
+		}
 	}
 }
 

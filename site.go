@@ -100,6 +100,14 @@ func (s *Site) Install(appDef app.Definition) {
 	s.apps = append(s.apps, appDef)
 }
 
+// InstalledApps returns the Application definitions registered via Install.
+// Used by the CLI's install/uninstall commands (TAD §16).
+func (s *Site) InstalledApps() []app.Definition {
+	out := make([]app.Definition, len(s.apps))
+	copy(out, s.apps)
+	return out
+}
+
 // Compile compiles the schema registry, wires engines, and mounts HTTP routes.
 func (s *Site) Compile() error {
 	if err := s.Registry.Compile(); err != nil {
