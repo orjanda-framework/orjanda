@@ -36,6 +36,27 @@ jobs:
       - name: Test (unit — SQLite in-memory, no network)
         run: go test -race -count=1 ./...
 
+  integration:
+    # Phase 11 criterion: the orjanda/testing harness proves WithDialect
+    # against a real PostgreSQL instance (testcontainers-go). Gated behind the
+    # "integration" build tag and a separate job so the fast unit lane never
+    # depends on Docker (PRD §32.1 Integration tests row).
+    name: Integration (PostgreSQL via testcontainers)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Test (integration — PostgreSQL via testcontainers-go)
+        run: go test -tags integration -count=1 ./testing/...
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
