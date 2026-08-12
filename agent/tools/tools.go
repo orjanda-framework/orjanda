@@ -591,7 +591,7 @@ func discoveryTools() []llm.ToolDefinition {
 	return []llm.ToolDefinition{
 		{
 			Name:        "list_document_types",
-			Description: "List all Document types registered in the system, optionally filtered by module.",
+			Description: "List all Document types registered in the system, optionally filtered by module. Use describe_document on a Document type to activate its operation tools.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -601,7 +601,7 @@ func discoveryTools() []llm.ToolDefinition {
 		},
 		{
 			Name:        "describe_document",
-			Description: "Describe a Document type's fields, permissions, and relationships.",
+			Description: "Describe a Document type's fields, permissions, and relationships. Describing a Document type activates its operation tools (list, get, search, create, update, delete, execute_action) for this conversation.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

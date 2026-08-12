@@ -22,7 +22,8 @@ type Session struct {
 	mu          sync.Mutex
 	transcript  []llm.Message
 	seen        map[string]bool // snake_case DocType keys
-	targetCount int
+	targetCount int             // record count of the most recent list/search result
+	targetDoc   string          // snake_case DocType that targetCount belongs to
 }
 
 func newSession(id auth.Identity) *Session {
@@ -64,17 +65,25 @@ func (s *Session) seenDocType(docType string) bool {
 	return s.seen[docType]
 }
 
-func (s *Session) setTargetCount(n int) {
+func (s *Session) setTargetCount(docType string, n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.targetDoc = docType
 	s.targetCount = n
 }
 
-// TargetCount is the record count of the most recent list/search result
-// (TAD §12.1 step 2).
-func (s *Session) TargetCount() int {
+// TargetCount returns the record count of the most recent list/search result
+// (TAD §12.1 step 2), or 0 when docType does not match the DocType the count
+// was recorded for. Scoping the count to its own DocType prevents a large
+// list of one Document type from tripping the bulk approval on a later,
+// unrelated read or write (TAD §12.1 step 2 applies the bulk check to the
+// records the current call affects).
+func (s *Session) TargetCount(docType string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if docType == "" || s.targetDoc != docType {
+		return 0
+	}
 	return s.targetCount
 }
 

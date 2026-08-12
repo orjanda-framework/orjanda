@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -709,6 +710,84 @@ func TestAgentWritesAreAuditedViaAgent(t *testing.T) {
 	}
 	if humanEntry.ViaAgent {
 		t.Error("human write marked via_agent=true; want false")
+	}
+}
+
+// TestBulkCountScopedToDocType is a regression test for a bug surfaced by the
+// Phase 12 Criterion 5 live leave-request flow: the session-wide target count
+// from one Document type's list/search result bled into unrelated subsequent
+// calls and tripped the bulk-limit approval (TAD §12.1 step 2) on a plain
+// read/discovery call. The count must apply only to calls on the same DocType
+// the count was recorded for.
+func TestBulkCountScopedToDocType(t *testing.T) {
+	s := newTestSite(t)
+	hr := hrCtx()
+
+	for i := 0; i < 6; i++ {
+		_, err := s.doc.Create(hr, "Employee", map[string]any{
+			"FirstName": "Emp", "LastName": fmt.Sprintf("Loy%d", i),
+			"Email": fmt.Sprintf("emp%d@test.com", i),
+		})
+		if err != nil {
+			t.Fatalf("seed employee: %v", err)
+		}
+	}
+
+	rt := s.newRuntime(t, nil)
+	s.provider.responses = []*llm.ChatResponse{
+		toolCallResponse("list_document_types", `{}`),
+		toolCallResponse("describe_document", `{"doc_type":"LeaveRequest"}`),
+		textResponse("done"),
+	}
+
+	if _, err := rt.Execute(hr, "list document types then describe LeaveRequest"); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// The discovery list returns every registered DocType (7 > the default
+	// MaxBulkOperations of 5). That count must never seed the session's bulk
+	// target: the follow-up describe is auto-approved, so no approval round
+	// trip may have run.
+	if got := len(s.approvals.requests); got != 0 {
+		t.Errorf("approval requests = %d, want 0 (discovery list count must not trip bulk approval): %+v", got, s.approvals.requests)
+	}
+}
+
+// TestBulkCountAppliesToSameDocType verifies the positive side of the scoped
+// bulk count: a large list of one DocType still trips the bulk-limit approval
+// for a write on that same DocType (TAD §12.1 step 2).
+func TestBulkCountAppliesToSameDocType(t *testing.T) {
+	s := newTestSite(t)
+	hr := hrCtx()
+
+	for i := 0; i < 6; i++ {
+		_, err := s.doc.Create(hr, "Employee", map[string]any{
+			"FirstName": "Emp", "LastName": fmt.Sprintf("Loy%d", i),
+			"Email": fmt.Sprintf("emp%d@test.com", i),
+		})
+		if err != nil {
+			t.Fatalf("seed employee: %v", err)
+		}
+	}
+
+	rt := s.newRuntime(t, nil)
+	s.provider.responses = []*llm.ChatResponse{
+		toolCallResponse("list_employee", `{"limit":100}`),
+		toolCallResponse("create_employee", `{"first_name":"Ada","last_name":"Lovelace","email":"ada@test.com"}`),
+		textResponse("done"),
+	}
+
+	if _, err := rt.Execute(hr, "list employees then create one"); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// list_employee returned 6 records of the same DocType the create targets,
+	// so the bulk-limit branch must have required an approval round trip.
+	if got := len(s.approvals.requests); got != 1 {
+		t.Errorf("approval requests = %d, want 1 (same-DocType bulk count must trip approval): %+v", got, s.approvals.requests)
+	}
+	if len(s.approvals.requests) == 1 && s.approvals.requests[0].Details.PolicyReason != "BulkLimit" {
+		t.Errorf("policy reason = %q, want %q", s.approvals.requests[0].Details.PolicyReason, "BulkLimit")
 	}
 }
 

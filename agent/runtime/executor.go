@@ -58,7 +58,7 @@ func (r *Runtime) executeTool(ctx context.Context, sess *Session, name string, a
 			Verb:        verb,
 			ToolName:    name,
 			Args:        args,
-			TargetCount: sess.TargetCount(),
+			TargetCount: sess.TargetCount(r.snakeDocTypeFor(name)),
 		}
 		a := r.safety.RequiresApprovalWithReason(ctx, id, info)
 		if a.Required {
@@ -79,8 +79,14 @@ func (r *Runtime) executeTool(ctx context.Context, sess *Session, name string, a
 	out, err := r.dispatch(actx, name, args)
 
 	r.markDocTypesSeen(sess, name, args)
+	// A list/search count is recorded only for a DocType operation tool
+	// (TAD §12.1 step 2). Discovery tools like list_document_types return a
+	// record set too, but their count must never seed the session's bulk
+	// target — it does not describe records the agent will operate on.
 	if count, ok := recordCount(out); ok {
-		sess.setTargetCount(count)
+		if dt := r.snakeDocTypeFor(name); dt != "" {
+			sess.setTargetCount(dt, count)
+		}
 	}
 
 	obs := observation(out, err)
@@ -96,11 +102,15 @@ func (r *Runtime) gateApproval(ctx context.Context, sess *Session, name string, 
 	if approvals == nil {
 		return "error: approval required for " + name + " but no approval gateway is configured", nil, false
 	}
+	verb := safety.VerbFor(name, args)
+	if discoveryToolNames[name] {
+		verb = "read"
+	}
 	payload := ApprovalPayload{
 		ActionID: newApprovalID(),
 		Details: ApprovalDetails{
 			DocType:      r.docTypeFor(name),
-			Action:       safety.VerbFor(name, args),
+			Action:       verb,
 			Payload:      args,
 			PolicyReason: string(a.Reason),
 		},

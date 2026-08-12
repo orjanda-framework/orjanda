@@ -506,6 +506,16 @@ func (r *Runtime) docTypeFor(toolName string) string {
 	return ""
 }
 
+// snakeDocTypeFor resolves the snake_case DocType key of an operation tool
+// name ("list_employee" → "employee"), matching the session's seen-doc and
+// target-count keys. Discovery, method, and custom tools resolve to "".
+func (r *Runtime) snakeDocTypeFor(toolName string) string {
+	if dt := r.docTypeFor(toolName); dt != "" {
+		return snakeCase(dt)
+	}
+	return ""
+}
+
 // splitOperationTool splits a Registry-derived operation tool into (verb,
 // snake_case DocType). Returns ("", "") for discovery, method, or custom toolreg.
 func splitOperationTool(name string) (verb, snake string) {
@@ -539,9 +549,14 @@ func snakeCase(s string) string {
 // is empty. It keeps the agent grounded in the single permission/approval path
 // (PRD §23.4): the agent sees exactly the tools its identity is allowed to use,
 // and destructive or bulk work is gated by the Safety Layer, not the prompt.
+// The discovery step is called out explicitly because operation tools attach
+// only after their target DocType has appeared in the session (TAD §11.1).
 const defaultSystemPrompt = "You are the AI agent built into this business application. " +
-	"Interact with business records through the provided tools only. " +
-	"Never invent records or permissions that are not exposed by the tools you are given. " +
+	"Interact with business records through the provided tools only; never invent records, " +
+	"fields, or permissions that are not exposed by the tools you are given. " +
+	"To operate on a Document Type you must first discover it: call describe_document " +
+	"(or list_document_types) for the Document Type you need, and only then do its operation " +
+	"tools (list, get, search, create, update, delete, execute_action) become available. " +
 	"Read operations are safe; create, update, delete, and workflow actions are gated by policy " +
 	"and may require human approval before they execute. " +
 	"Prefer a clear, concise final answer in the user's language."
