@@ -24,6 +24,7 @@ func newAdminSite(t *testing.T) (*orjanda.Site, string) {
 	cfg := config.Config{
 		Database: config.DatabaseConfig{Driver: "sqlite", DSN: ":memory:"},
 		Server:   config.ServerConfig{Host: "127.0.0.1", Port: 8080, CORSOrigins: []string{"*"}},
+		Auth:     config.AuthConfig{JWTSecret: "site-ui-jwt-secret-0123456789-0123456789"},
 		LLM: config.LLMConfig{
 			DefaultProvider: "openai",
 			Providers: map[string]config.LLMProviderConfig{

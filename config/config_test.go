@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/orjanda-framework/orjanda/config"
@@ -19,7 +20,8 @@ func writeYAML(t *testing.T, content string) string {
 	return path
 }
 
-// exampleYAML is identical to the TAD §1.3 example config.
+// exampleYAML is identical to the TAD §1.3 example config, plus the required
+// auth.jwt_secret block (REVIEW-2026-08-12 finding 1).
 const exampleYAML = `
 server:
   port: 8080
@@ -30,6 +32,8 @@ database:
   dsn: "postgres://user:pass@localhost:5432/orjanda?sslmode=disable"
   max_open_conns: 25
   max_idle_conns: 5
+auth:
+  jwt_secret: "example-jwt-secret-0123456789-0123456789"
 llm:
   default_provider: "openai"
   providers:
@@ -52,6 +56,8 @@ llm:
 // TestLoadExampleYAML verifies that config.Load correctly parses the TAD §1.3
 // example orjanda.yaml — a Phase 0 completion criterion.
 func TestLoadExampleYAML(t *testing.T) {
+	// Isolate from any ambient ORJANDA_AUTH_JWT_SECRET (empty env is ignored).
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 	path := writeYAML(t, exampleYAML)
 
 	cfg, err := config.Load(path)
@@ -76,6 +82,11 @@ func TestLoadExampleYAML(t *testing.T) {
 	}
 	if cfg.Database.MaxIdleConns != 5 {
 		t.Errorf("Database.MaxIdleConns = %d, want 5", cfg.Database.MaxIdleConns)
+	}
+
+	// Auth
+	if cfg.Auth.JWTSecret != "example-jwt-secret-0123456789-0123456789" {
+		t.Errorf("Auth.JWTSecret = %q, want %q", cfg.Auth.JWTSecret, "example-jwt-secret-0123456789-0123456789")
 	}
 
 	// LLM
@@ -111,6 +122,7 @@ func TestEnvVarOverride(t *testing.T) {
 	const want = "sk-from-env-override"
 
 	t.Setenv(envKey, want)
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 
 	path := writeYAML(t, exampleYAML)
 	cfg, err := config.Load(path)
@@ -130,6 +142,7 @@ func TestEnvVarOverride(t *testing.T) {
 // TestAnthropicEnvOverride mirrors the above for ORJANDA_ANTHROPIC_API_KEY.
 func TestAnthropicEnvOverride(t *testing.T) {
 	t.Setenv("ORJANDA_ANTHROPIC_API_KEY", "ant-from-env")
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 
 	path := writeYAML(t, exampleYAML)
 	cfg, err := config.Load(path)
@@ -153,6 +166,8 @@ func TestDefaults(t *testing.T) {
 	// automatically by the testing package, but be explicit here).
 	t.Setenv("ORJANDA_OPENAI_API_KEY", "")
 	t.Setenv("ORJANDA_ANTHROPIC_API_KEY", "")
+	// The JWT secret is required (no default), so supply it via env.
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "defaults-test-jwt-secret-0123456789")
 
 	cfg, err := config.Load("")
 	if err != nil {
@@ -169,7 +184,10 @@ func TestDefaults(t *testing.T) {
 // TestLoadOpenAICompatibleConfig verifies parsing of the openai_compatible
 // provider block (base_url, auth, capability overrides).
 func TestLoadOpenAICompatibleConfig(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 	const yaml = `
+auth:
+  jwt_secret: "openai-compatible-test-jwt-secret-0123"
 llm:
   default_provider: "openai_compatible"
   providers:
@@ -240,5 +258,58 @@ database:
 	_, err := config.Load(path)
 	if err == nil {
 		t.Fatal("Load() with port=99999 expected error, got nil")
+	}
+}
+
+// TestMissingJWTSecret verifies that config.Load fails fast when the JWT
+// signing secret is not configured — regression for REVIEW-2026-08-12 finding
+// 1, where a missing secret silently fell back to a guessable host-derived key.
+func TestMissingJWTSecret(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	path := writeYAML(t, `server:
+  port: 8080
+  host: "0.0.0.0"
+database:
+  driver: "sqlite"
+`)
+	_, err := config.Load(path)
+	if err == nil {
+		t.Fatal("Load() without auth.jwt_secret expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "auth.jwt_secret") {
+		t.Errorf("Load() error = %q, want it to mention auth.jwt_secret", err)
+	}
+}
+
+// TestWeakJWTSecret verifies that short/guessable secrets are rejected.
+func TestWeakJWTSecret(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	const yaml = `
+auth:
+  jwt_secret: "short"
+database:
+  driver: "sqlite"
+`
+	path := writeYAML(t, yaml)
+	_, err := config.Load(path)
+	if err == nil {
+		t.Fatal("Load() with a weak auth.jwt_secret expected error, got nil")
+	}
+}
+
+// TestJWTSecretEnvOverride verifies that ORJANDA_AUTH_JWT_SECRET overrides the
+// auth.jwt_secret from the config file, mirroring the existing env-override
+// pattern for LLM API keys.
+func TestJWTSecretEnvOverride(t *testing.T) {
+	const want = "env-secret-0123456789-0123456789-0123456789"
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", want)
+
+	path := writeYAML(t, exampleYAML)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Auth.JWTSecret != want {
+		t.Errorf("Auth.JWTSecret = %q, want %q (env override not applied)", cfg.Auth.JWTSecret, want)
 	}
 }

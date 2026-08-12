@@ -16,7 +16,23 @@ import (
 type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
+	Auth     AuthConfig     `mapstructure:"auth"`
 	LLM      LLMConfig      `mapstructure:"llm"`
+}
+
+// MinJWTSecretLength is the minimum accepted length for auth.jwt_secret.
+// HS256 signing keys shorter than this offer negligible forgery resistance.
+const MinJWTSecretLength = 32
+
+// AuthConfig holds authentication and token signing settings.
+type AuthConfig struct {
+	// JWTSecret is the HMAC-SHA256 signing key for access and refresh JWTs.
+	// It is required: at least MinJWTSecretLength characters, supplied via
+	// orjanda.yaml (auth.jwt_secret) or the ORJANDA_AUTH_JWT_SECRET
+	// environment variable. There is deliberately no default — a derived or
+	// hardcoded default key would let anyone forge administrator tokens
+	// (REVIEW-2026-08-12 finding 1).
+	JWTSecret string `mapstructure:"jwt_secret"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -152,6 +168,10 @@ func Load(cfgFile string) (*Config, error) {
 	_ = v.BindEnv("llm.providers.openai.api_key", "ORJANDA_OPENAI_API_KEY")
 	_ = v.BindEnv("llm.providers.anthropic.api_key", "ORJANDA_ANTHROPIC_API_KEY")
 
+	// The JWT signing secret is required and has no default; it must be
+	// explicitly bound so the environment value reaches Unmarshal.
+	_ = v.BindEnv("auth.jwt_secret", "ORJANDA_AUTH_JWT_SECRET")
+
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
 		if err := v.ReadInConfig(); err != nil {
@@ -171,6 +191,19 @@ func Load(cfgFile string) (*Config, error) {
 	return &cfg, nil
 }
 
+// ValidateJWTSecret returns an error unless secret is a strong JWT signing key.
+// It rejects empty and short values so a misconfigured site fails fast instead
+// of silently operating with a guessable key (see TAD §1.3, PRD §15.1).
+func ValidateJWTSecret(secret string) error {
+	if secret == "" {
+		return fmt.Errorf("auth.jwt_secret must be set (orjanda.yaml: auth.jwt_secret, or env ORJANDA_AUTH_JWT_SECRET)")
+	}
+	if len(secret) < MinJWTSecretLength {
+		return fmt.Errorf("auth.jwt_secret must be at least %d characters", MinJWTSecretLength)
+	}
+	return nil
+}
+
 // validate checks that the config values are self-consistent after loading.
 func validate(cfg *Config) error {
 	switch cfg.Database.Driver {
@@ -184,6 +217,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("config: server.port %d is out of range [1, 65535]", cfg.Server.Port)
+	}
+	if err := ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
+		return fmt.Errorf("config: %w", err)
 	}
 	return nil
 }

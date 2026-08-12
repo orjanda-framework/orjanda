@@ -7,6 +7,12 @@ server:
   host: "0.0.0.0"
   cors_origins: ["*"]
 
+auth:
+  # JWT signing key — REQUIRED, at least 32 characters. No default is provided:
+  # a guessable key would let anyone forge administrator tokens.
+  # Set via env: ORJANDA_AUTH_JWT_SECRET
+  jwt_secret: ${ORJANDA_AUTH_JWT_SECRET}
+
 database:
   driver: "postgres" # postgres | sqlite
   dsn: "postgres://user:pass@localhost:5432/orjanda?sslmode=disable"

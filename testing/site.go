@@ -110,7 +110,11 @@ func NewTestSite(t *testing.T, opts ...Option) *TestSite {
 		opt(&cfg)
 	}
 
-	site, err := orjanda.NewSite(config.Config{})
+	site, err := orjanda.NewSite(config.Config{
+		Auth: config.AuthConfig{
+			JWTSecret: "test-site-jwt-secret-0123456789-0123456789",
+		},
+	})
 	require.NoError(t, err)
 
 	// The core Application and its Documents are always present (TAD §4).

@@ -21,6 +21,7 @@ import (
 	"github.com/orjanda-framework/orjanda/dal/dialect/postgres"
 	"github.com/orjanda-framework/orjanda/dal/dialect/sqlite"
 	"github.com/orjanda-framework/orjanda/document"
+	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/event"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
@@ -74,11 +75,13 @@ func NewSite(cfg config.Config) (*Site, error) {
 	cacheStore := cache.NewLRUStore(1000)
 	reg := schema.NewRegistry()
 
-	secretKey := []byte(cfg.Server.Host)
-	if len(secretKey) == 0 {
-		secretKey = []byte("orjanda-secret-key-default-development")
+	// The JWT signing key comes exclusively from auth.jwt_secret. There is no
+	// fallback: a derived (host-based) or hardcoded default key would let
+	// anyone forge administrator tokens (REVIEW-2026-08-12 finding 1).
+	if err := config.ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
+		return nil, orjerrors.Validation("invalid auth.jwt_secret: "+err.Error(), nil)
 	}
-	jwtProvider := auth.NewJWTProvider(secretKey, 15*time.Minute, 7*24*time.Hour)
+	jwtProvider := auth.NewJWTProvider([]byte(cfg.Auth.JWTSecret), 15*time.Minute, 7*24*time.Hour)
 
 	site := &Site{
 		Config:   cfg,
