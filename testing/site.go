@@ -138,6 +138,10 @@ func NewTestSite(t *testing.T, opts ...Option) *TestSite {
 		}
 	}
 
+	// Core User hooks (bcrypt password hashing, TAD §4.1) — installed before
+	// any write so CreateUser stores a hash the login endpoint can verify.
+	core.RegisterUserHooks(site.EventBus)
+
 	// Compile the Registry, then open the database and create every table.
 	// The DB cannot be opened before compile: RegisterDocs/CreateTables
 	// consume compiled Documents (TAD §2.3). Site.Compile() is deliberately

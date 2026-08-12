@@ -522,6 +522,46 @@ func TestEngine_Phase4_BeforeSaveHookAbortsTransaction(t *testing.T) {
 	_ = reg
 }
 
+// TestEngine_UpdateBeforeSaveReceivesMergedDocument verifies PRD §19.1's
+// "before_save | Before any save | Mutable document": on a partial update the
+// hook receives the full record (old fields overlaid with the patch), can see
+// cross-field state it didn't write, and its mutations are persisted.
+func TestEngine_UpdateBeforeSaveReceivesMergedDocument(t *testing.T) {
+	eng, _ := newTestEngine(t, &employee{})
+	bus := event.NewBus()
+	eng.SetEventBus(bus)
+	ctx := context.Background()
+
+	id, err := eng.Create(ctx, "Employee", map[string]any{
+		"FirstName":  "Jane",
+		"LastName":   "Doe",
+		"Email":      "jane@test.com",
+		"Department": "Engineering",
+	})
+	require.NoError(t, err)
+
+	sawDepartment := false
+	bus.On("Employee", event.EventBeforeSave, func(_ context.Context, doc map[string]any) error {
+		// The patch below only touches LastName; the hook must still see the
+		// department that already exists on the record.
+		if dept, ok := doc["department"].(string); ok && dept == "Engineering" {
+			sawDepartment = true
+		}
+		// Mutate a field not present in the patch; the mutation must persist.
+		doc["email"] = "jane.doe@test.com"
+		return nil
+	})
+
+	require.NoError(t, eng.Update(ctx, "Employee", id, map[string]any{"LastName": "Doe-Smith"}))
+
+	assert.True(t, sawDepartment, "before_save on update must see unchanged fields")
+	row, err := eng.Read(ctx, "Employee", id)
+	require.NoError(t, err)
+	assert.Equal(t, "jane.doe@test.com", row["email"], "before_save mutations must be persisted")
+	assert.Equal(t, "Doe-Smith", row["last_name"])
+	assert.Equal(t, "Engineering", row["department"], "unchanged fields must survive the update")
+}
+
 // ─────────────────────────────────────────────
 // Phase 4 Completion Criterion 2:
 // A user without Create permission receives errors.CodePermission before any DAL call.

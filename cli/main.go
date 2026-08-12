@@ -59,6 +59,10 @@ func (b siteBuilder) newSite(cfg config.Config) (*orjanda.Site, error) {
 		return nil, err
 	}
 
+	// Core User hooks (bcrypt password hashing, TAD §4.1) apply to every site
+	// the CLI builds, app binary or core-only, before configure runs.
+	core.RegisterUserHooks(site.EventBus)
+
 	if b.configure != nil {
 		if err := b.configure(site); err != nil {
 			return nil, err

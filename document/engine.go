@@ -260,13 +260,28 @@ func (e *Engine) Update(ctx context.Context, docType, id string, data map[string
 		if err := e.bus.Emit(ctx, docType, event.EventBeforeUpdate, norm); err != nil {
 			return err
 		}
-		if err := e.bus.Emit(ctx, docType, event.EventBeforeSave, norm); err != nil {
+	}
+
+	// before_save receives the full record as it will exist after this save —
+	// old fields overlaid with the patch — not just the changed fields
+	// (PRD §19.1 "before_save | Before any save | Mutable document"). Hooks
+	// that validate cross-field invariants need the whole row; mutations they
+	// make here are persisted below.
+	merged := make(map[string]any, len(oldRow)+len(norm))
+	for k, v := range oldRow {
+		merged[k] = v
+	}
+	for k, v := range norm {
+		merged[k] = v
+	}
+	if e.bus != nil {
+		if err := e.bus.Emit(ctx, docType, event.EventBeforeSave, merged); err != nil {
 			return err
 		}
 	}
 
 	return e.db.Transaction(ctx, func(tx dal.Tx) error {
-		row := buildUpdateRow(norm)
+		row := buildUpdateRow(merged)
 		if err := tx.Update(ctx, docType, id, row); err != nil {
 			return err
 		}

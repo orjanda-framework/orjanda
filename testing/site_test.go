@@ -1,9 +1,12 @@
 package testing
 
 import (
+	"context"
 	"testing"
 
 	"github.com/orjanda-framework/orjanda/agent"
+	"github.com/orjanda-framework/orjanda/auth"
+	"github.com/orjanda-framework/orjanda/dal"
 	"github.com/orjanda-framework/orjanda/document"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
@@ -130,6 +133,41 @@ func TestNewTestSiteParallelIsolation(t *testing.T) {
 			assert.Empty(t, users, "a fresh site must start with zero User records")
 		})
 	}
+}
+
+// TestCreateUserPasswordHashed verifies the core before_save hook (TAD §4.1,
+// PRD §15.1): a User created via the Document Engine stores a bcrypt hash, not
+// plaintext, and a plaintext password re-written via Update is re-hashed. This
+// is what lets the built-in login endpoint (api/auth.go) verify REST-created
+// accounts.
+func TestCreateUserPasswordHashed(t *testing.T) {
+	site := NewTestSite(t, WithDocuments("hr-test", &testEmployee{}))
+
+	user := site.CreateUser(t, "jane@test.com", "HR Manager")
+	rows, err := site.DB.Query(context.Background(), dal.Select{
+		DocType: "User",
+		Filters: map[string]any{"id": user.UserID},
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	stored, _ := rows[0]["password"].(string)
+	require.NotEqual(t, "orjanda-test-password", stored, "password must not be stored in plaintext")
+	require.True(t, auth.CheckPassword(stored, "orjanda-test-password"),
+		"stored password must be a bcrypt hash of the plaintext")
+
+	// Update path: writing a new plaintext password re-hashes it. Only the
+	// System Administrator can write the core User document.
+	require.NoError(t, site.Document.Update(sysadminCtx(), "User", user.UserID, map[string]any{
+		"Password": "new-secret-pass",
+	}))
+	rows, err = site.DB.Query(context.Background(), dal.Select{
+		DocType: "User",
+		Filters: map[string]any{"id": user.UserID},
+	})
+	require.NoError(t, err)
+	updated, _ := rows[0]["password"].(string)
+	require.True(t, auth.CheckPassword(updated, "new-secret-pass"))
 }
 
 // TestMockLLMPlanAndExecuteWithApproval scripts a full Plan-and-Execute turn
