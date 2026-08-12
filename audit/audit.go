@@ -86,9 +86,10 @@ func WriteInTx(ctx context.Context, tx dal.Tx, log Log, e Entry) error {
 }
 
 // ---------------------------------------------------------------------------
-// InMemoryLog — test-friendly implementation used by the Document Engine
-// when no persistent log is configured. A real DB-backed log is introduced
-// in Phase 5. See TAD §13.1.
+// InMemoryLog — non-persistent implementation used for unit tests and as the
+// session-only default when no database-backed log can be wired (nil DB, or
+// an embedding without raw-connection access). DBLog is the persistent
+// implementation used whenever a database is available.
 // ---------------------------------------------------------------------------
 
 type InMemoryLog struct {
