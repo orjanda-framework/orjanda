@@ -248,16 +248,22 @@ func (r *registry) Relationships(docType string) []Relationship {
 	return rels
 }
 
+// getBaseDocumentFields returns the auto fields present on every Document
+// (PRD §10.2). The system-managed ones are marked Hidden so the metadata API
+// (and therefore the auto-generated Admin UI forms/lists and the codegen
+// client) never exposes them as user-editable (TAD §6.1, PRD §17.3); the
+// engine owns id/owner/timestamps/doc_status/deleted. Name stays visible
+// because it is the user-definable title field.
 func getBaseDocumentFields() []Field {
 	return []Field{
-		{Name: "ID", DBColumn: "id", Type: FieldTypeString, Required: true, Label: "ID"},
+		{Name: "ID", DBColumn: "id", Type: FieldTypeString, Required: true, Label: "ID", Hidden: true},
 		{Name: "Name", DBColumn: "name", Type: FieldTypeString, Label: "Name"},
-		{Name: "Owner", DBColumn: "owner", Type: FieldTypeString, Label: "Owner"},
-		{Name: "CreatedAt", DBColumn: "created_at", Type: FieldTypeDateTime, Label: "Created At"},
-		{Name: "UpdatedAt", DBColumn: "updated_at", Type: FieldTypeDateTime, Label: "Updated At"},
-		{Name: "ModifiedBy", DBColumn: "modified_by", Type: FieldTypeString, Label: "Modified By"},
-		{Name: "DocStatus", DBColumn: "doc_status", Type: FieldTypeInt, Label: "Doc Status"},
-		{Name: "Deleted", DBColumn: "deleted", Type: FieldTypeBool, Label: "Deleted"},
+		{Name: "Owner", DBColumn: "owner", Type: FieldTypeString, Label: "Owner", Hidden: true},
+		{Name: "CreatedAt", DBColumn: "created_at", Type: FieldTypeDateTime, Label: "Created At", Hidden: true},
+		{Name: "UpdatedAt", DBColumn: "updated_at", Type: FieldTypeDateTime, Label: "Updated At", Hidden: true},
+		{Name: "ModifiedBy", DBColumn: "modified_by", Type: FieldTypeString, Label: "Modified By", Hidden: true},
+		{Name: "DocStatus", DBColumn: "doc_status", Type: FieldTypeInt, Label: "Doc Status", Hidden: true},
+		{Name: "Deleted", DBColumn: "deleted", Type: FieldTypeBool, Label: "Deleted", Hidden: true},
 	}
 }
 

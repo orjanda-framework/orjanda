@@ -49,6 +49,52 @@ func (d *testDoc) Set(field string, value any) orjerrors.Error {
 	return d.BaseDocument.Set(field, value)
 }
 
+// childParentDoc carries a child table so child-table DAL semantics
+// (no soft-delete base column) are exercised.
+type childParentDoc struct {
+	schema.BaseDocument
+	Title string     `oj:"required"`
+	Rows  []ChildRow `oj:"child_table"`
+}
+
+type ChildRow struct {
+	schema.BaseChild
+	Note string `oj:"required"`
+}
+
+func (d *childParentDoc) DocMeta() schema.Meta {
+	return schema.Meta{Name: "ChildParent"}
+}
+func (d *childParentDoc) Get(field string) any {
+	switch field {
+	case "Title":
+		return d.Title
+	}
+	return d.BaseDocument.Get(field)
+}
+func (d *childParentDoc) Set(field string, value any) orjerrors.Error {
+	return d.BaseDocument.Set(field, value)
+}
+
+func (c *ChildRow) DocMeta() schema.Meta {
+	return schema.Meta{Name: "ChildRow"}
+}
+func (c *ChildRow) Get(field string) any {
+	return c.BaseChild.Get(field)
+}
+func (c *ChildRow) Set(field string, value any) orjerrors.Error {
+	return c.BaseChild.Set(field, value)
+}
+
+// childRegistry compiles a registry with childParentDoc.
+func childRegistry(t *testing.T) schema.Registry {
+	t.Helper()
+	reg := schema.NewRegistry()
+	require.NoError(t, reg.Register("test-app", &childParentDoc{}))
+	require.NoError(t, reg.Compile())
+	return reg
+}
+
 // newTestSQLiteDB opens an in-memory SQLite DB, creates tables, and registers
 // the testDoc docType.
 func newTestSQLiteDB(t *testing.T, reg schema.Registry) *sqlite.DB {
@@ -380,6 +426,49 @@ func TestSQLiteDB_CRUD(t *testing.T) {
 	for _, row := range rows {
 		assert.NotEqual(t, id, row["id"], "deleted record should not appear")
 	}
+}
+
+// TestSQLiteDB_ChildTableQuery_NoSoftDeleteFilter ensures child-table queries
+// (which have no "deleted" base column) do not emit a soft-delete predicate.
+// Regression: SQLite treats an unknown double-quoted identifier as a string
+// literal, so `"deleted" = ?` became `'deleted' = 0` (always false) and child
+// queries silently returned zero rows — which broke rolesForUser lookups.
+func TestSQLiteDB_ChildTableQuery_NoSoftDeleteFilter(t *testing.T) {
+	reg := childRegistry(t)
+	db := newTestSQLiteDB(t, reg)
+	ctx := context.Background()
+
+	parentID, err := db.Insert(ctx, "ChildParent", map[string]any{
+		"title": "Parent One",
+		"id":    "01JSTESTCHILDPARENT0000",
+	})
+	require.NoError(t, err)
+
+	_, err = db.Insert(ctx, "ChildRow", map[string]any{
+		"parent_id": parentID,
+		"idx":       0,
+		"note":      "first note",
+	})
+	require.NoError(t, err)
+
+	rows, err := db.Query(ctx, dal.Select{
+		DocType: "ChildRow",
+		Filters: map[string]any{"parent_id": parentID},
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "first note", rows[0]["note"])
+
+	err = db.Transaction(ctx, func(tx dal.Tx) error {
+		rows, err = tx.Query(ctx, dal.Select{
+			DocType: "ChildRow",
+			Filters: map[string]any{"parent_id": parentID},
+		})
+		return err
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "first note", rows[0]["note"])
 }
 
 // ─────────────────────────────────────────────

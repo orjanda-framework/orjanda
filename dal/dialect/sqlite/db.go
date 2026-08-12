@@ -18,10 +18,11 @@ import (
 
 // DB wraps *sql.DB and implements dal.Database for SQLite.
 type DB struct {
-	db           *sql.DB
-	dialect      *Dialect
-	tableNames   map[string]string
-	compiledDocs map[string]*schema.CompiledDoc
+	db            *sql.DB
+	dialect       *Dialect
+	tableNames    map[string]string
+	compiledDocs  map[string]*schema.CompiledDoc
+	childDocTypes map[string]bool
 }
 
 // Open opens a SQLite database at the given DSN (file path or ":memory:").
@@ -42,10 +43,11 @@ func Open(dsn string) (*DB, error) {
 		return nil, orjerrors.Internal("failed to enable foreign keys", err)
 	}
 	return &DB{
-		db:           db,
-		dialect:      New(),
-		tableNames:   make(map[string]string),
-		compiledDocs: make(map[string]*schema.CompiledDoc),
+		db:            db,
+		dialect:       New(),
+		tableNames:    make(map[string]string),
+		compiledDocs:  make(map[string]*schema.CompiledDoc),
+		childDocTypes: make(map[string]bool),
 	}, nil
 }
 
@@ -63,6 +65,9 @@ func (d *DB) RegisterDocs(docs []*schema.CompiledDoc) {
 		for _, child := range doc.ChildTables {
 			// Child DocType is singular snake (TAD §2.1); table is pluralized.
 			d.tableNames[child.TypeName] = child.DocType + "s"
+			// Child tables carry no soft-delete base column; their queries must
+			// not emit a "deleted" predicate (TAD §2.3 child-table semantics).
+			d.childDocTypes[child.TypeName] = true
 		}
 	}
 }
@@ -85,6 +90,9 @@ func (d *DB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error) 
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
 		}
 		q.TableName = tn
+		if d.childDocTypes[q.DocType] {
+			q.IncludeDeleted = true
+		}
 	}
 	searchApplied := false
 	if doc != nil {
@@ -185,10 +193,11 @@ func (d *DB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
 		return orjerrors.Internal("failed to begin transaction", err)
 	}
 	t := &txDB{
-		tx:           tx,
-		dialect:      d.dialect,
-		tableNames:   d.tableNames,
-		compiledDocs: d.compiledDocs,
+		tx:            tx,
+		dialect:       d.dialect,
+		tableNames:    d.tableNames,
+		compiledDocs:  d.compiledDocs,
+		childDocTypes: d.childDocTypes,
 	}
 	if err := fn(t); err != nil {
 		_ = tx.Rollback()
@@ -205,10 +214,11 @@ func (d *DB) Transaction(ctx context.Context, fn func(dal.Tx) error) error {
 // ----------------------------------------------------------------------------
 
 type txDB struct {
-	tx           *sql.Tx
-	dialect      *Dialect
-	tableNames   map[string]string
-	compiledDocs map[string]*schema.CompiledDoc
+	tx            *sql.Tx
+	dialect       *Dialect
+	tableNames    map[string]string
+	compiledDocs  map[string]*schema.CompiledDoc
+	childDocTypes map[string]bool
 }
 
 func (t *txDB) Dialect() dal.Dialect { return t.dialect }
@@ -226,6 +236,9 @@ func (t *txDB) Query(ctx context.Context, q dal.Select) ([]map[string]any, error
 			return nil, orjerrors.NotFound(fmt.Sprintf("no table mapping for docType %q", q.DocType))
 		}
 		q.TableName = tn
+		if t.childDocTypes[q.DocType] {
+			q.IncludeDeleted = true
+		}
 	}
 	searchApplied := false
 	if doc != nil {

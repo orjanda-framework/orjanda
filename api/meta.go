@@ -88,10 +88,25 @@ func (h *MetaHandler) GetDocMeta(w http.ResponseWriter, r *http.Request) {
 		canDelete = h.perm.CheckAction(r.Context(), docType, "delete") == nil
 	}
 
+	// Fields the caller may access once field-level permission (oj:"permission=role")
+	// is applied per identity (TAD §2.7, §6.1 note: metadata is pre-calculated
+	// for the requesting user so the UI can hide gated fields immediately).
+	allowed := map[string]bool{}
+	if h.perm != nil {
+		if names, err := h.perm.AllowedFields(r.Context(), docType, "write"); err == nil {
+			for _, n := range names {
+				allowed[n] = true
+			}
+		}
+	}
+
 	fieldsMeta := make([]FieldMeta, 0, len(compiled.Fields))
 	for i := range compiled.Fields {
 		f := &compiled.Fields[i]
 		if f.Hidden {
+			continue
+		}
+		if len(allowed) > 0 && f.PermissionRole != "" && !allowed[f.Name] {
 			continue
 		}
 		fieldsMeta = append(fieldsMeta, FieldMeta{

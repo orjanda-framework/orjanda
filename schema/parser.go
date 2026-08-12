@@ -116,9 +116,9 @@ func parseFieldsInternal(t reflect.Type, visited []reflect.Type) ([]Field, []Com
 			field.ValidatorName = val
 		}
 
-		// Apply label default if empty
+		// Apply label default if empty (TAD §6.1 example: FirstName → "First Name").
 		if field.Label == "" {
-			field.Label = f.Name
+			field.Label = humanizeLabel(f.Name)
 		}
 
 		fields = append(fields, field)
@@ -220,4 +220,25 @@ func camelToSnake(s string) string {
 		}
 	}
 	return string(res)
+}
+
+// humanizeLabel turns a Go field name into a human-readable label, e.g.
+// "FirstName" → "First Name", "MaxDaysPerYear" → "Max Days Per Year", while
+// leaving all-caps identifiers like "ID" intact. It is the label default when
+// no `oj:"label=..."` tag is present (TAD §6.1 example).
+func humanizeLabel(s string) string {
+	var b strings.Builder
+	runes := []rune(s)
+	for i, r := range runes {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			prev := runes[i-1]
+			isPrevLower := (prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9')
+			isNextLower := i+1 < len(runes) && runes[i+1] >= 'a' && runes[i+1] <= 'z'
+			if isPrevLower || isNextLower {
+				b.WriteByte(' ')
+			}
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

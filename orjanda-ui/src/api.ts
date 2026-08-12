@@ -20,7 +20,7 @@ export function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return withToken<T>(path, init);
 }
 
-async function withToken<T>(path: string, init: RequestInit): Promise<T> {
+async function fetchEnvelope<T>(path: string, init: RequestInit): Promise<Envelope<T> | null> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((init.headers as Record<string, string>) ?? {}),
@@ -43,6 +43,11 @@ async function withToken<T>(path: string, init: RequestInit): Promise<T> {
     const message = body?.error?.message ?? `HTTP ${res.status}`;
     throw new ApiError(res.status, code, message);
   }
+  return body;
+}
+
+async function withToken<T>(path: string, init: RequestInit): Promise<T> {
+  const body = await fetchEnvelope<T>(path, init);
   return (body?.data ?? body) as T;
 }
 
@@ -58,5 +63,10 @@ export const api = {
   },
   delete<T>(path: string): Promise<T> {
     return apiFetch<T>(path, { method: 'DELETE' });
+  },
+  /** Fetch the full {data, meta, error} envelope for endpoints whose metadata
+   *  (e.g. list pagination) must be read alongside the payload. */
+  getEnvelope<T>(path: string): Promise<Envelope<T> | null> {
+    return fetchEnvelope<T>(path, {});
   },
 };

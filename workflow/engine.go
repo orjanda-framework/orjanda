@@ -105,6 +105,7 @@ func (e *engine) Register(def Definition) error {
 			DBColumn: "workflow_state",
 			Type:     schema.FieldTypeString,
 			Label:    "Workflow State",
+			ReadOnly: true,
 		})
 	}
 

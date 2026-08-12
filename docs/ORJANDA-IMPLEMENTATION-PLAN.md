@@ -370,8 +370,8 @@ The following constraints apply to **every** phase below and are not repeated pe
 **Dependencies:** All prior phases — this is the integration and hardening phase, not new subsystem work.
 
 **Completion criteria (directly restating PRD §44.4, now checkable against a running system):**
-- [ ] The `orjanda-app-hr-example` Application's four Documents are implemented in ~200 lines of Go (PRD §36.1's estimate, measured with `gocloc` or equivalent as a sanity check, not a hard gate).
-- [ ] The Admin UI renders correct forms and lists for all four Documents with zero frontend code specific to them.
+- [x] The `orjanda-app-hr-example` Application's four Documents are implemented in ~200 lines of Go (PRD §36.1's estimate, measured with `gocloc` or equivalent as a sanity check, not a hard gate).
+- [x] The Admin UI renders correct forms and lists for all four Documents with zero frontend code specific to them.
 - [ ] The REST API supports full CRUD for all four Documents with authentication and permission enforcement verified for at least two roles.
 - [ ] The agent answers "How many employees are in department X?" correctly via live tool calls (not a mock) against a seeded database.
 - [ ] The agent creates a leave request end-to-end, including the approval confirmation round trip, against a live LLM provider (OpenAI or Anthropic).

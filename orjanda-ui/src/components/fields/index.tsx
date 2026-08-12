@@ -71,17 +71,14 @@ function NumberField({ meta, value, onChange, disabled }: FieldRendererProps) {
 
 function BoolField({ meta, value, onChange, disabled }: FieldRendererProps) {
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-        checked={Boolean(value)}
-        disabled={disabled}
-        data-field={meta.db_column}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span className={disabled ? 'text-slate-500' : 'text-slate-700'}>{meta.label}</span>
-    </label>
+    <input
+      type="checkbox"
+      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+      checked={Boolean(value)}
+      disabled={disabled}
+      data-field={meta.db_column}
+      onChange={(e) => onChange(e.target.checked)}
+    />
   );
 }
 
@@ -185,10 +182,20 @@ for (const [type, comp] of DEFAULTS) {
 
 /**
  * FieldRenderer renders one field of a Document using the three-level
- * ComponentRegistry resolution (PRD §18.2). Defaults above are the fallback.
+ * ComponentRegistry resolution (PRD §18.2). Options-bearing string fields
+ * default to a select (Status/options fields); all other fields fall back to
+ * the registered type default, then TextField.
  */
 export function FieldRenderer(props: FieldRendererProps): ReactNode {
-  const resolved = ComponentRegistry.resolveField(props.meta.type, props.docType, props.meta.name);
-  const Comp = (resolved ?? TextField) as ComponentTypeField;
+  const { meta, docType } = props;
+  const specific =
+    ComponentRegistry.resolve(`field:${meta.type}:${docType}.${meta.name}`) ??
+    ComponentRegistry.resolve(`field:${meta.type}:${docType}`);
+  if (specific) return (specific as ComponentTypeField)(props);
+
+  const defaultComp =
+    (meta.options && meta.options.length > 0 ? SelectField : undefined) ??
+    ComponentRegistry.resolve(`field:${meta.type}`);
+  const Comp = (defaultComp ?? TextField) as ComponentTypeField;
   return <Comp {...props} />;
 }

@@ -19,7 +19,7 @@ type LeaveRequest struct {
 	FromDate      schema.Date `oj:"required"`
 	ToDate        schema.Date `oj:"required"`
 	Reason        schema.Text `oj:"required,label=Reason"`
-	WorkflowState string
+	WorkflowState string      `oj:"readonly"`
 }
 
 func (l *LeaveRequest) DocMeta() schema.Meta {

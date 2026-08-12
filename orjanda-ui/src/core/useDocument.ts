@@ -2,10 +2,9 @@
 // (PRD §14.2): list, read, create, update, delete. Records are keyed by
 // db_column; the payload builder translates form state into wire keys.
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { api } from '../api';
 import type { DocMeta, ListResponse, RecordData } from '../types';
-
 export interface ListOptions {
   q?: string;
   limit?: number;
@@ -22,13 +21,18 @@ export interface DocumentApi {
 
 export function useDocument(doctype: string, meta: DocMeta | null): DocumentApi | null {
   const list = useCallback(
-    async (opts: ListOptions = {}) => {
+    async (opts: ListOptions = {}): Promise<ListResponse> => {
       const params = new URLSearchParams();
       if (opts.q) params.set('q', opts.q);
       if (opts.limit != null) params.set('limit', String(opts.limit));
       if (opts.offset != null) params.set('offset', String(opts.offset));
       const qs = params.toString();
-      return api.get<ListResponse>(`/api/v1/document/${doctype}${qs ? `?${qs}` : ''}`);
+      const path = `/api/v1/document/${doctype}${qs ? `?${qs}` : ''}`;
+      const env = await api.getEnvelope<RecordData[]>(path);
+      return {
+        data: env?.data ?? [],
+        meta: env?.meta ?? { total_count: 0, limit: 25, offset: 0 },
+      };
     },
     [doctype],
   );
@@ -57,8 +61,12 @@ export function useDocument(doctype: string, meta: DocMeta | null): DocumentApi 
     [doctype],
   );
 
-  if (!meta) return null;
-  return { list, read, create, update, remove };
+  // Return a stable object so consumers (e.g. DocListPage's effect deps) do not
+  // re-trigger on every render. Without this, the effect refetches forever.
+  return useMemo<DocumentApi | null>(() => {
+    if (!meta) return null;
+    return { list, read, create, update, remove };
+  }, [meta, list, read, create, update, remove]);
 }
 
 /**
