@@ -25,19 +25,48 @@ func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("llm provider returned HTTP %d: %s", e.StatusCode, e.Message)
 }
 
-// ProviderOptions configures the built-in OpenAI and Anthropic adapters.
+// AuthMode selects how a provider authenticates to its endpoint.
+type AuthMode string
+
+const (
+	// AuthBearer sends an Authorization: Bearer <api_key> header on every
+	// request. This is the OpenAI adapter's default and preserves its historical
+	// behavior (an empty key still emits the header).
+	AuthBearer AuthMode = "bearer"
+	// AuthBearerIfKey sends the Authorization: Bearer header only when an API
+	// key is configured. This is the openai_compatible adapter's default: local
+	// endpoints (Ollama, LM Studio, vLLM) typically need no key, while hosted
+	// compatible endpoints authenticate once api_key is set.
+	AuthBearerIfKey AuthMode = "bearer_if_key"
+	// AuthNone omits the Authorization header entirely.
+	AuthNone AuthMode = "none"
+)
+
+// ProviderOptions configures the built-in OpenAI, openai_compatible, and
+// Anthropic adapters.
 type ProviderOptions struct {
 	// APIKey is the provider secret.
 	APIKey string
 	// Model is the default model identifier.
 	Model string
 	// BaseURL overrides the provider endpoint (defaults to the official
-	// endpoint). Tests point this at an httptest.Server.
+	// endpoint; required for openai_compatible). Tests point this at an
+	// httptest.Server.
 	BaseURL string
 	// MaxTokens is the default completion token cap (0 = provider default).
 	MaxTokens int
 	// HTTPClient overrides the shared HTTP client (tests inject a short one).
 	HTTPClient *http.Client
+	// Auth selects the authentication mode (see AuthMode). Zero value means
+	// the provider's default: AuthBearer for openai, AuthBearerIfKey for
+	// openai_compatible.
+	Auth AuthMode
+	// ToolCalling and StructuredOutput override the adapter's capability
+	// report. OpenAI-compatible servers vary in support, so per-instance
+	// overrides let a self-hosted endpoint disable features it lacks.
+	// nil = adapter default.
+	ToolCalling      *bool
+	StructuredOutput *bool
 }
 
 // doJSON performs an HTTP request with a JSON body and decodes the JSON

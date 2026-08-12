@@ -14,17 +14,23 @@ import (
 const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 
 // OpenAIProvider implements Provider against the OpenAI chat-completions API.
-// See TAD §2.7 and PRD §26.
+// It also backs the openai_compatible adapter (see openai_compatible.go), which
+// shares this wire format. See TAD §2.7 and PRD §26.
 type OpenAIProvider struct {
-	apiKey    string
-	model     string
-	baseURL   string
-	maxTokens int
-	client    *http.Client
+	apiKey           string
+	model            string
+	baseURL          string
+	maxTokens        int
+	client           *http.Client
+	auth             AuthMode
+	toolCalling      bool
+	structuredOutput bool
 }
 
 // NewOpenAIProvider constructs an OpenAI adapter. BaseURL and HTTPClient in
 // opts default to the official endpoint and http.DefaultClient respectively.
+// Capabilities default to both tool calling and structured output supported;
+// opts.ToolCalling/StructuredOutput override per instance.
 func NewOpenAIProvider(opts ProviderOptions) *OpenAIProvider {
 	baseURL := strings.TrimSuffix(opts.BaseURL, "/")
 	if baseURL == "" {
@@ -34,24 +40,39 @@ func NewOpenAIProvider(opts ProviderOptions) *OpenAIProvider {
 	if client == nil {
 		client = http.DefaultClient
 	}
+	auth := opts.Auth
+	if auth == "" {
+		auth = AuthBearer
+	}
 	return &OpenAIProvider{
-		apiKey:    opts.APIKey,
-		model:     opts.Model,
-		baseURL:   baseURL,
-		maxTokens: opts.MaxTokens,
-		client:    client,
+		apiKey:           opts.APIKey,
+		model:            opts.Model,
+		baseURL:          baseURL,
+		maxTokens:        opts.MaxTokens,
+		client:           client,
+		auth:             auth,
+		toolCalling:      boolOr(opts.ToolCalling, true),
+		structuredOutput: boolOr(opts.StructuredOutput, true),
 	}
 }
 
-func (p *OpenAIProvider) SupportsToolCalling() bool { return true }
+// boolOr returns the dereferenced value of p, or def when p is nil.
+func boolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
 
-func (p *OpenAIProvider) SupportsStructuredOutput() bool { return true }
+func (p *OpenAIProvider) SupportsToolCalling() bool { return p.toolCalling }
+
+func (p *OpenAIProvider) SupportsStructuredOutput() bool { return p.structuredOutput }
 
 func (p *OpenAIProvider) ModelInfo() ModelInfo {
 	return ModelInfo{
 		Name:                     p.model,
-		SupportsTools:            true,
-		SupportsStructuredOutput: true,
+		SupportsTools:            p.toolCalling,
+		SupportsStructuredOutput: p.structuredOutput,
 	}
 }
 
@@ -299,6 +320,14 @@ type openAIStreamEvent struct {
 }
 
 func (p *OpenAIProvider) headers() map[string]string {
+	switch p.auth {
+	case AuthNone:
+		return nil
+	case AuthBearerIfKey:
+		if p.apiKey == "" {
+			return nil
+		}
+	}
 	return map[string]string{
 		"Authorization": "Bearer " + p.apiKey,
 	}

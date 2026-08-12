@@ -1,8 +1,12 @@
 package llm_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/orjanda-framework/orjanda/agent/llm"
@@ -116,5 +120,28 @@ func TestOpenAIProviderStructuredOutput(t *testing.T) {
 	}
 	if got := p.ModelInfo(); !got.SupportsStructuredOutput || !got.SupportsTools {
 		t.Errorf("ModelInfo() = %+v, want both capability flags true", got)
+	}
+}
+
+// TestOpenAIProviderAlwaysSendsBearer guards behavior preservation: unlike the
+// openai_compatible adapter, the certified openai adapter emits an
+// Authorization header even with an empty API key (AuthBearer default).
+func TestOpenAIProviderAlwaysSendsBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"x","choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"total_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	p := llm.NewOpenAIProvider(llm.ProviderOptions{Model: "test-model", BaseURL: srv.URL})
+	if _, err := p.ChatCompletion(context.Background(), llm.ChatRequest{
+		Messages: []llm.Message{{Role: "user", Content: "hi"}},
+	}); err != nil {
+		t.Fatalf("ChatCompletion: %v", err)
+	}
+	if !strings.HasPrefix(gotAuth, "Bearer") {
+		t.Errorf("Authorization = %q, want a Bearer header even with empty API key", gotAuth)
 	}
 }

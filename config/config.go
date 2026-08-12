@@ -76,6 +76,23 @@ type LLMProviderConfig struct {
 	// MaxTokens caps the number of tokens per LLM completion request.
 	// Default: 4096.
 	MaxTokens int `mapstructure:"max_tokens"`
+
+	// BaseURL overrides the provider endpoint. Required for
+	// "openai_compatible"; empty means the provider's official default
+	// endpoint (TAD §1.3).
+	BaseURL string `mapstructure:"base_url"`
+
+	// Auth selects the provider authentication mode: "bearer" (always send
+	// the Authorization: Bearer header), "bearer_if_key" (only when api_key
+	// is set), or "none" (never). Empty means the provider default.
+	// Honored by the OpenAI and openai_compatible adapters (TAD §1.3).
+	Auth string `mapstructure:"auth"`
+
+	// ToolCalling and StructuredOutput override the adapter's capability
+	// report; OpenAI-compatible servers vary in support, so a self-hosted
+	// endpoint can disable a feature it lacks. nil = adapter default.
+	ToolCalling      *bool `mapstructure:"tool_calling"`
+	StructuredOutput *bool `mapstructure:"structured_output"`
 }
 
 // LLMSafetyConfig holds safety-related knobs for the agent runtime.
@@ -103,6 +120,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("llm.providers.openai.max_tokens", 4096)
 	v.SetDefault("llm.providers.anthropic.model", "claude-3-5-sonnet-20240620")
 	v.SetDefault("llm.providers.anthropic.max_tokens", 4096)
+	v.SetDefault("llm.providers.openai_compatible.max_tokens", 4096)
 	v.SetDefault("llm.safety.max_bulk_operations", 5)
 }
 

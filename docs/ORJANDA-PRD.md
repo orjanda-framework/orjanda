@@ -1469,7 +1469,8 @@ type ChatResponse struct {
 |---|---|---|
 | OpenAI | Yes | GPT-4o, GPT-4o-mini |
 | Anthropic | Yes | Claude Sonnet, Claude Haiku |
-| Ollama (local) | Post-MVP | For self-hosted / air-gapped deployments |
+| OpenAI-compatible endpoints (Ollama, vLLM, LM Studio, Together, Groq) | Yes | `openai_compatible` provider; keyless by default, per-instance capability flags |
+| Ollama (native API) | Post-MVP | Self-hosted / air-gapped deployments; the OpenAI-compatible endpoint is usable via `openai_compatible` today |
 | Google (Gemini) | Post-MVP | Community contribution |
 
 ### 26.3 Provider Configuration
@@ -1487,6 +1488,13 @@ llm:
       api_key: ${ANTHROPIC_API_KEY}
       model: claude-sonnet-4-20250514
       max_tokens: 4096
+    openai_compatible:        # any OpenAI chat-completions server
+      base_url: http://localhost:11434/v1   # e.g. Ollama, vLLM, LM Studio
+      model: llama3.1
+      max_tokens: 4096
+      # api_key is optional; keyless local endpoints need no auth header.
+      # tool_calling: false    # disable if the server lacks tool support
+      # structured_output: false
   fallback:
     - openai
     - anthropic

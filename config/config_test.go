@@ -41,6 +41,10 @@ llm:
       api_key: "ant-test"
       model: "claude-3-5-sonnet-20240620"
       max_tokens: 4096
+    openai_compatible:
+      base_url: "http://localhost:11434/v1"
+      model: "llama3.1"
+      max_tokens: 4096
   safety:
     max_bulk_operations: 5
 `
@@ -87,6 +91,13 @@ func TestLoadExampleYAML(t *testing.T) {
 	}
 	if openai.MaxTokens != 4096 {
 		t.Errorf("openai.MaxTokens = %d, want 4096", openai.MaxTokens)
+	}
+	oc, ok := cfg.LLM.Providers["openai_compatible"]
+	if !ok {
+		t.Fatal("LLM.Providers[openai_compatible] missing")
+	}
+	if oc.BaseURL != "http://localhost:11434/v1" {
+		t.Errorf("openai_compatible.BaseURL = %q, want %q", oc.BaseURL, "http://localhost:11434/v1")
 	}
 	if cfg.LLM.Safety.MaxBulkOperations != 5 {
 		t.Errorf("LLM.Safety.MaxBulkOperations = %d, want 5", cfg.LLM.Safety.MaxBulkOperations)
@@ -152,6 +163,54 @@ func TestDefaults(t *testing.T) {
 	}
 	if cfg.LLM.Safety.MaxBulkOperations != 5 {
 		t.Errorf("default MaxBulkOperations = %d, want 5", cfg.LLM.Safety.MaxBulkOperations)
+	}
+}
+
+// TestLoadOpenAICompatibleConfig verifies parsing of the openai_compatible
+// provider block (base_url, auth, capability overrides).
+func TestLoadOpenAICompatibleConfig(t *testing.T) {
+	const yaml = `
+llm:
+  default_provider: "openai_compatible"
+  providers:
+    openai_compatible:
+      api_key: "local-key"
+      model: "llama3.1"
+      base_url: "http://localhost:11434/v1"
+      max_tokens: 1024
+      auth: "none"
+      tool_calling: false
+      structured_output: false
+`
+	path := writeYAML(t, yaml)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	oc, ok := cfg.LLM.Providers["openai_compatible"]
+	if !ok {
+		t.Fatal("LLM.Providers[openai_compatible] missing")
+	}
+	if oc.BaseURL != "http://localhost:11434/v1" {
+		t.Errorf("BaseURL = %q, want %q", oc.BaseURL, "http://localhost:11434/v1")
+	}
+	if oc.Auth != "none" {
+		t.Errorf("Auth = %q, want none", oc.Auth)
+	}
+	if oc.APIKey != "local-key" {
+		t.Errorf("APIKey = %q, want local-key", oc.APIKey)
+	}
+	if oc.Model != "llama3.1" {
+		t.Errorf("Model = %q, want llama3.1", oc.Model)
+	}
+	if oc.MaxTokens != 1024 {
+		t.Errorf("MaxTokens = %d, want 1024", oc.MaxTokens)
+	}
+	if oc.ToolCalling == nil || *oc.ToolCalling {
+		t.Errorf("ToolCalling = %v, want false", oc.ToolCalling)
+	}
+	if oc.StructuredOutput == nil || *oc.StructuredOutput {
+		t.Errorf("StructuredOutput = %v, want false", oc.StructuredOutput)
 	}
 }
 

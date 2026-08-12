@@ -72,6 +72,14 @@ llm:
       api_key: ${ORJANDA_ANTHROPIC_API_KEY}
       model: "claude-3-5-sonnet-20240620"
       max_tokens: 4096
+    openai_compatible:               # any server exposing the OpenAI chat-completions API
+      base_url: "http://localhost:11434/v1"  # e.g. Ollama, vLLM, LM Studio
+      model: "llama3.1"
+      max_tokens: 4096
+      # api_key is optional; keyless local endpoints need no auth header.
+      # auth: "bearer_if_key"        # bearer | bearer_if_key | none
+      # tool_calling: false          # disable if the server lacks tool support
+      # structured_output: false     # disable if the server lacks JSON-schema output
   safety:
     max_bulk_operations: 5
 ```
