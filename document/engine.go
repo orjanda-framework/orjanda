@@ -149,7 +149,7 @@ func (e *Engine) Create(ctx context.Context, docType string, data map[string]any
 		if e.auditLog != nil {
 			diff := audit.DiffMaps(nil, row)
 			entry := audit.BuildEntry(ctx, "create", docType, id, diff)
-			if err := e.auditLog.Write(ctx, entry); err != nil {
+			if err := audit.WriteInTx(ctx, tx, e.auditLog, entry); err != nil {
 				return err
 			}
 		}
@@ -307,7 +307,7 @@ func (e *Engine) Update(ctx context.Context, docType, id string, data map[string
 		if e.auditLog != nil {
 			diff := audit.DiffMaps(oldRow, mergedRow)
 			entry := audit.BuildEntry(ctx, "update", docType, id, diff)
-			if err := e.auditLog.Write(ctx, entry); err != nil {
+			if err := audit.WriteInTx(ctx, tx, e.auditLog, entry); err != nil {
 				return err
 			}
 		}
@@ -372,7 +372,7 @@ func (e *Engine) Delete(ctx context.Context, docType, id string) error {
 		if e.auditLog != nil {
 			diff := audit.DiffMaps(oldRow, map[string]any{"deleted": true})
 			entry := audit.BuildEntry(ctx, "delete", docType, id, diff)
-			if err := e.auditLog.Write(ctx, entry); err != nil {
+			if err := audit.WriteInTx(ctx, tx, e.auditLog, entry); err != nil {
 				return err
 			}
 		}

@@ -260,7 +260,7 @@ func (e *engine) Execute(ctx context.Context, docType, id, action string) error 
 					NewValue: targetTrans.To,
 				},
 			})
-			if err := e.auditLog.Write(ctx, auditEntry); err != nil {
+			if err := audit.WriteInTx(ctx, tx, e.auditLog, auditEntry); err != nil {
 				return err
 			}
 		}

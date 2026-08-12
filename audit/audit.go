@@ -8,7 +8,17 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/orjanda-framework/orjanda/auth"
+	"github.com/orjanda-framework/orjanda/dal"
 )
+
+// DocType is the pseudo DocType under which the audit table is registered with
+// the DAL. It is not a Registry Document — audit entries are written only by
+// the Document/Workflow Engines and are never exposed as operable documents
+// (TAD §13).
+const DocType = "audit"
+
+// TableName is the SQL table backing the DB-backed audit log.
+const TableName = "audit_entries"
 
 // Entry is an immutable audit record written inside the same dal.Tx as the
 // triggering Document Engine or Workflow Engine operation. See TAD §13.
@@ -48,11 +58,31 @@ type QueryFilter struct {
 
 // Log is the audit log interface. Implementations must write inside the
 // caller's dal.Tx (TAD §13.1 write-path guarantee). The in-memory
-// implementation provided here is sufficient for MVP unit tests; a DB-backed
-// implementation is wired in Phase 5 when orjanda-core's tables exist.
+// implementation provided here is sufficient for MVP unit tests; the DB-backed
+// DBLog is wired at site compile time.
 type Log interface {
 	Write(ctx context.Context, e Entry) error
 	Query(ctx context.Context, f QueryFilter) ([]Entry, error)
+}
+
+// TxWriter is implemented by Log implementations that write inside the
+// caller's dal.Tx, giving TAD §13.1 its rollback guarantee: a failed audit
+// write aborts the triggering operation. The in-memory log does not need a
+// transaction handle; the DB-backed log does. Engines dispatch through
+// WriteInTx, which prefers WriteTx when the configured log supports it.
+type TxWriter interface {
+	WriteTx(ctx context.Context, tx dal.Tx, e Entry) error
+}
+
+// WriteInTx writes e inside tx when log implements TxWriter (TAD §13.1), and
+// falls back to the plain Write path for logs that don't participate in the
+// caller's transaction (e.g. InMemoryLog). Engines must call this inside their
+// dal.Tx callback so a failed audit write rolls back the data write.
+func WriteInTx(ctx context.Context, tx dal.Tx, log Log, e Entry) error {
+	if w, ok := log.(TxWriter); ok {
+		return w.WriteTx(ctx, tx, e)
+	}
+	return log.Write(ctx, e)
 }
 
 // ---------------------------------------------------------------------------

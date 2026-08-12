@@ -2,6 +2,8 @@
 package orjanda
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"net/http"
 	"time"
@@ -111,6 +113,34 @@ func (s *Site) InstalledApps() []app.Definition {
 	return out
 }
 
+// InitAuditLog upgrades the site's audit log to a DB-backed log when the
+// configured database supports it: it creates the audit table (TAD §13) and
+// registers the table's docType mapping so Engine writes commit inside the
+// same dal.Tx. Without a supporting database the in-memory log is kept, so a
+// nil DB or an embedding that can't reach the raw connection degrades safely.
+// Called by Compile; exported for harnesses that wire engines by hand.
+func (s *Site) InitAuditLog() error {
+	if s.DB == nil {
+		return nil
+	}
+	reg, okReg := s.DB.(interface{ RegisterDoc(docType, tableName string) })
+	conn, okConn := s.DB.(interface {
+		Underlying() *sql.DB
+		Dialect() dal.Dialect
+	})
+	if !okReg || !okConn {
+		slog.Warn("site.audit.inmemory", "reason", "database does not expose raw connection for audit table")
+		return nil
+	}
+	log := audit.NewDBLog(conn.Underlying(), conn.Dialect())
+	if err := log.EnsureSchema(context.Background()); err != nil {
+		return err
+	}
+	reg.RegisterDoc(audit.DocType, audit.TableName)
+	s.AuditLog = log
+	return nil
+}
+
 // Compile compiles the schema registry, wires engines, and mounts HTTP routes.
 func (s *Site) Compile() error {
 	if err := s.Registry.Compile(); err != nil {
@@ -120,6 +150,12 @@ func (s *Site) Compile() error {
 	s.Permissions = perm.NewEngine(s.Registry)
 	if s.DB != nil {
 		s.Permissions.SetDatabase(s.DB)
+	}
+
+	// Audit log before engines so their writes go through the transactional
+	// DB-backed log (TAD §13.1).
+	if err := s.InitAuditLog(); err != nil {
+		return err
 	}
 
 	s.DocEngine = document.NewWithServices(

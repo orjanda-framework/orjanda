@@ -157,6 +157,9 @@ func NewTestSite(t *testing.T, opts ...Option) *TestSite {
 	db := openTestDB(t, cfg.dialect, site.Registry.List())
 	site.DB = db
 
+	// DB-backed audit log (TAD §13.1) before engines are wired.
+	require.NoError(t, site.InitAuditLog())
+
 	site.Permissions = perm.NewEngine(site.Registry)
 	site.Permissions.SetDatabase(db)
 	site.DocEngine = document.NewWithServices(

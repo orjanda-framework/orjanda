@@ -10,6 +10,7 @@ import (
 
 	"github.com/orjanda-framework/orjanda/audit"
 	"github.com/orjanda-framework/orjanda/auth"
+	"github.com/orjanda-framework/orjanda/dal"
 	"github.com/orjanda-framework/orjanda/dal/dialect/sqlite"
 	"github.com/orjanda-framework/orjanda/document"
 	orjerrors "github.com/orjanda-framework/orjanda/errors"
@@ -633,4 +634,100 @@ func TestEngine_Phase4_AuditLogEntryWrittenInSameTx(t *testing.T) {
 	require.Len(t, entries, 1, "Exactly one audit entry must be created on document create")
 	assert.Equal(t, "create", entries[0].Action)
 	assert.Equal(t, "admin_1", entries[0].UserID)
+}
+
+// ─────────────────────────────────────────────
+// DB-backed audit log (TAD §13.1) — REVIEW-2026-08-12 finding 2.
+// ─────────────────────────────────────────────
+
+// newAuditedEngineDB builds an engine backed by an in-memory SQLite DB with a
+// DB-backed audit log wired via WriteTx, returning the engine, registry, and
+// the audit log for assertions.
+func newAuditedEngineDB(t *testing.T, docs ...schema.Document) (*document.Engine, schema.Registry, *audit.DBLog) {
+	t.Helper()
+
+	reg := schema.NewRegistry()
+	for _, doc := range docs {
+		require.NoError(t, reg.Register("test-app", doc))
+	}
+	require.NoError(t, reg.Compile())
+
+	db, err := sqlite.Open(":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	db.Underlying().SetMaxOpenConns(1)
+
+	compiled := reg.List()
+	require.NoError(t, db.CreateTables(compiled))
+	db.RegisterDocs(compiled)
+
+	alog := audit.NewDBLog(db.Underlying(), db.Dialect())
+	require.NoError(t, alog.EnsureSchema(context.Background()))
+	db.RegisterDoc(audit.DocType, audit.TableName)
+
+	eng := document.New(db, reg)
+	eng.SetAuditLog(alog)
+	return eng, reg, alog
+}
+
+func TestEngine_AuditLog_DBBackedPersists(t *testing.T) {
+	eng, _, alog := newAuditedEngineDB(t, &employee{})
+	ctx := auth.NewContext(context.Background(), auth.Identity{UserID: "admin_1"})
+
+	id, err := eng.Create(ctx, "Employee", map[string]any{
+		"FirstName": "Persisted",
+		"LastName":  "Audit",
+		"Email":     "persisted@example.com",
+	})
+	require.NoError(t, err)
+
+	entries, err := alog.Query(ctx, audit.QueryFilter{DocType: "Employee", DocID: id})
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "DB-backed audit log must record the write")
+	assert.Equal(t, "create", entries[0].Action)
+	assert.Equal(t, "admin_1", entries[0].UserID)
+}
+
+// failingAuditLog implements audit.Log and audit.TxWriter but always fails
+// WriteTx, simulating a DB-backed audit write error inside the transaction.
+type failingAuditLog struct{}
+
+func (failingAuditLog) Write(context.Context, audit.Entry) error               { return assert.AnError }
+func (failingAuditLog) Query(context.Context, audit.QueryFilter) ([]audit.Entry, error) {
+	return nil, nil
+}
+func (failingAuditLog) WriteTx(context.Context, dal.Tx, audit.Entry) error { return assert.AnError }
+
+func TestEngine_AuditWriteFailure_RollsBackDataWrite(t *testing.T) {
+	reg := schema.NewRegistry()
+	require.NoError(t, reg.Register("test-app", &employee{}))
+	require.NoError(t, reg.Compile())
+
+	db, err := sqlite.Open(":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	db.Underlying().SetMaxOpenConns(1)
+
+	compiled := reg.List()
+	require.NoError(t, db.CreateTables(compiled))
+	db.RegisterDocs(compiled)
+
+	eng := document.New(db, reg)
+	eng.SetAuditLog(failingAuditLog{})
+
+	ctx := auth.NewContext(context.Background(), auth.Identity{UserID: "admin_1"})
+	_, err = eng.Create(ctx, "Employee", map[string]any{
+		"FirstName": "Rollback",
+		"LastName":  "Case",
+		"Email":     "rollback@example.com",
+	})
+	require.Error(t, err, "a failed audit write must abort the document write")
+
+	rows, err := db.Query(ctx, dal.Select{
+		DocType:   "Employee",
+		TableName: "employees",
+		Filters:   map[string]any{"email": "rollback@example.com"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, rows, "TAD §13.1: data write must be rolled back when the audit write fails")
 }
