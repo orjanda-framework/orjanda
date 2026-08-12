@@ -373,7 +373,7 @@ The following constraints apply to **every** phase below and are not repeated pe
 - [x] The `orjanda-app-hr-example` Application's four Documents are implemented in ~200 lines of Go (PRD §36.1's estimate, measured with `gocloc` or equivalent as a sanity check, not a hard gate).
 - [x] The Admin UI renders correct forms and lists for all four Documents with zero frontend code specific to them.
 - [x] The REST API supports full CRUD for all four Documents with authentication and permission enforcement verified for at least two roles.
-- [ ] The agent answers "How many employees are in department X?" correctly via live tool calls (not a mock) against a seeded database.
+- [x] The agent answers "How many employees are in department X?" correctly via live tool calls (not a mock) against a seeded database.
 - [ ] The agent creates a leave request end-to-end, including the approval confirmation round trip, against a live LLM provider (OpenAI or Anthropic).
 - [ ] The agent is denied access to `Salary` for a role without `hr_manager`, verified both in the tool schema (field absent) and in a direct attempt to read it via `get_employee`.
 - [ ] The agent operates on all four Documents using only auto-generated tools — zero Document-specific agent code was written for `Department`, `LeaveType`, or `LeaveRequest` (only the one custom `calculate_leave_balance` tool from PRD §24.3/§37 is hand-written, as the PRD itself specifies).
