@@ -162,10 +162,24 @@ func (r *Runtime) dispatch(ctx context.Context, name string, args map[string]any
 		if !found || m.Handler == nil {
 			return nil, orjerrors.NotFound("custom RPC method not found: " + methodName)
 		}
+		// Same role gate as the HTTP RPC path (TAD §9.2): the ToolRegistry only
+		// advertises the tool to role-holders, but execution must re-check so a
+		// tool name invoked directly cannot bypass perm.Engine (PRD §25.1).
+		if r.permEngine != nil && len(m.Opts.AllowedRoles) > 0 {
+			if err := r.permEngine.CheckRoles(ctx, "method:"+methodName, "call", m.Opts.AllowedRoles); err != nil {
+				return nil, err
+			}
+		}
 		return m.Handler(ctx, args)
 	}
 
 	if ct, ok := r.customTool[name]; ok && ct.Handler != nil {
+		// Same role gate as tool visibility (TAD §10.4): re-check at execution.
+		if r.permEngine != nil && len(ct.AllowedRoles) > 0 {
+			if err := r.permEngine.CheckRoles(ctx, "custom:"+ct.Name, "call", ct.AllowedRoles); err != nil {
+				return nil, err
+			}
+		}
 		return ct.Handler(ctx, args)
 	}
 

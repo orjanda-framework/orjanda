@@ -133,3 +133,43 @@ func TestPermEngine_FieldLevelFilterReadAndWrite(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 100000.0, hrWrite["Salary"])
 }
+
+// TestPermEngine_CheckRoles covers the synthetic-docType role gate of
+// TAD §9.2 ("method:<name>") and TAD §8.1 step 3 (workflow transitions):
+// union-of-roles, System Administrator override, "*" wildcard, empty list
+// grants (public), case-insensitivity, and CodePermission denial.
+func TestPermEngine_CheckRoles(t *testing.T) {
+	pEngine := perm.NewEngine(schema.NewRegistry())
+
+	cases := []struct {
+		name  string
+		roles []string
+		user  []string
+		want  bool
+	}{
+		{"empty list grants (public)", nil, []string{"Viewer"}, true},
+		{"matching role grants", []string{"Task Manager"}, []string{"Task Manager"}, true},
+		{"case-insensitive match grants", []string{"task manager"}, []string{"Task Manager"}, true},
+		{"wildcard grants any role", []string{"*"}, []string{"Viewer"}, true},
+		{"System Administrator always grants", []string{"Task Manager"}, []string{"System Administrator"}, true},
+		{"no matching role denies", []string{"Task Manager"}, []string{"Viewer"}, false},
+		{"identity with no roles denies gated method", []string{"Task Manager"}, nil, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := auth.NewContext(context.Background(), auth.Identity{
+				UserID: "usr_1",
+				Roles:  tc.user,
+			})
+			err := pEngine.CheckRoles(ctx, "method:task.assign", "call", tc.roles)
+			if tc.want {
+				assert.NoError(t, err)
+				return
+			}
+			var ojErr orjerrors.Error
+			require.True(t, errors.As(err, &ojErr), "expected CodePermission, got %v", err)
+			assert.Equal(t, orjerrors.CodePermission, ojErr.Code())
+		})
+	}
+}

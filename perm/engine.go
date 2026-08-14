@@ -2,6 +2,7 @@ package perm
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -39,6 +40,16 @@ type Engine interface {
 	// CheckAction evaluates document-level CRUD permission for the caller
 	// in ctx. Returns errors.CodePermission if denied.
 	CheckAction(ctx context.Context, docType, action string) error
+
+	// CheckRoles enforces a role-list gate for registry-less (synthetic)
+	// DocTypes such as "method:<name>" for custom RPC methods (TAD §9.2) and
+	// workflow transitions (TAD §8.1 step 3), which have no CompiledDoc to
+	// derive permissions from. Union-of-roles semantics: ANY listed role
+	// grants; "System Administrator" always grants; "*" matches any
+	// authenticated identity; an empty list grants (public), mirroring
+	// CheckAction's allow-when-no-Permissions behavior. Denial is logged per
+	// TAD §13.3 and returns errors.CodePermission.
+	CheckRoles(ctx context.Context, docType, action string, roles []string) error
 
 	// FilterRead returns a copy of data containing only the fields the caller
 	// is allowed to read, based on field-level oj:"permission=role" tags.
@@ -125,6 +136,28 @@ func (e *engine) CheckAction(ctx context.Context, docType, action string) error 
 		}
 	}
 	return nil
+}
+
+// CheckRoles implements the synthetic-docType role gate of TAD §9.2 (custom
+// RPC methods: DocType "method:<name>") and TAD §8.1 step 3 (workflow
+// transitions). See the interface comment for semantics.
+func (e *engine) CheckRoles(ctx context.Context, docType, action string, roles []string) error {
+	id := auth.FromContext(ctx)
+	if len(roles) == 0 || hasRole(id, "System Administrator") {
+		return nil
+	}
+	for _, allowed := range roles {
+		if allowed == "*" {
+			return nil
+		}
+		for _, userRole := range id.Roles {
+			if strings.EqualFold(userRole, allowed) {
+				return nil
+			}
+		}
+	}
+	slog.Warn("perm.denied", "user", id.UserID, "doctype", docType, "action", action, "via_agent", false)
+	return orjerrors.Permission(fmt.Sprintf("permission denied: required role for %s on %s not held", action, docType))
 }
 
 func (e *engine) checkDBPermissions(ctx context.Context, id auth.Identity, docType, action string) (bool, error) {

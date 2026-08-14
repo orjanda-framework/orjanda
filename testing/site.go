@@ -182,12 +182,13 @@ func NewTestSite(t *testing.T, opts ...Option) *TestSite {
 	})
 
 	agentRT, err := runtime.NewRuntime(runtime.Options{
-		Provider:  errorProvider{},
-		Tools:     site.Tools,
-		Registry:  site.Registry,
-		DocEngine: site.DocEngine,
-		Workflow:  site.Workflows,
-		Safety:    safety.NewLayer(defaultSafetyPolicy(), site.Cache),
+		Provider:   errorProvider{},
+		Tools:      site.Tools,
+		PermEngine: site.Permissions,
+		Registry:   site.Registry,
+		DocEngine:  site.DocEngine,
+		Workflow:   site.Workflows,
+		Safety:     safety.NewLayer(defaultSafetyPolicy(), site.Cache),
 	})
 	require.NoError(t, err)
 

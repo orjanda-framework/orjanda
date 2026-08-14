@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/orjanda-framework/orjanda/api/render"
-	"github.com/orjanda-framework/orjanda/auth"
 	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/perm"
 )
@@ -103,11 +102,11 @@ func DispatchHandler(permEngine perm.Engine) http.HandlerFunc {
 			return
 		}
 
-		// Role permission check: AllowedRoles must be held by caller identity
-		id := auth.FromContext(r.Context())
+		// Role check through the shared perm.Engine path (TAD §9.2): AllowedRoles
+		// is enforced as a synthetic DocType "method:<name>", not a bespoke gate.
 		if len(m.Opts.AllowedRoles) > 0 {
-			if !hasAnyRole(id, m.Opts.AllowedRoles) {
-				render.RespondError(w, orjerrors.Permission("permission denied for method "+methodPath))
+			if err := permEngine.CheckRoles(r.Context(), "method:"+m.Name, "call", m.Opts.AllowedRoles); err != nil {
+				render.RespondError(w, err)
 				return
 			}
 		}
@@ -137,18 +136,4 @@ func DispatchHandler(permEngine perm.Engine) http.HandlerFunc {
 
 		render.RespondJSON(w, http.StatusOK, res, nil)
 	}
-}
-
-func hasAnyRole(id auth.Identity, allowedRoles []string) bool {
-	for _, userRole := range id.Roles {
-		if strings.EqualFold(userRole, "System Administrator") {
-			return true
-		}
-		for _, allowedRole := range allowedRoles {
-			if strings.EqualFold(userRole, allowedRole) {
-				return true
-			}
-		}
-	}
-	return false
 }

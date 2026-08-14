@@ -128,7 +128,9 @@ type Options struct {
 	// If nil, a new registry is built from permEngine/workflow and compiled
 	// against Registry.
 	Tools toolreg.ToolRegistry
-	// PermEngine is required when Tools is nil (to build the registry).
+	// PermEngine is required when Tools is nil (to build the registry). When
+	// set, the Executor also re-checks method/custom tool AllowedRoles at
+	// execution time through it (TAD §9.2 / §10.4, PRD §25.1).
 	PermEngine perm.Engine
 	// Registry is the compiled schema registry.
 	Registry schema.Registry
@@ -183,13 +185,14 @@ func WithApprovals(a ApprovalGateway) ExecuteOption {
 
 // Runtime is the concrete agent Runtime (TAD §2.6).
 type Runtime struct {
-	provider  llm.Provider
-	regTools  toolreg.ToolRegistry
-	schemaReg schema.Registry
-	docEngine *document.Engine
-	wfEngine  workflow.Engine
-	safety    *safety.Layer
-	sessions  *SessionManager
+	provider   llm.Provider
+	regTools   toolreg.ToolRegistry
+	schemaReg  schema.Registry
+	docEngine  *document.Engine
+	wfEngine   workflow.Engine
+	permEngine perm.Engine
+	safety     *safety.Layer
+	sessions   *SessionManager
 
 	sink      Sink
 	approvals ApprovalGateway
@@ -247,18 +250,19 @@ func NewRuntime(opts Options) (*Runtime, error) {
 	}
 
 	r := &Runtime{
-		provider:  opts.Provider,
-		regTools:  regTools,
-		schemaReg: opts.Registry,
-		docEngine: opts.DocEngine,
-		wfEngine:  opts.Workflow,
-		safety:    opts.Safety,
-		sessions:  NewSessionManagerWithTTL(sessionTTL),
-		sink:      opts.Sink,
-		approvals: opts.Approvals,
-		model:     opts.Model,
-		maxSteps:  maxSteps,
-		system:    system,
+		provider:   opts.Provider,
+		regTools:   regTools,
+		schemaReg:  opts.Registry,
+		docEngine:  opts.DocEngine,
+		wfEngine:   opts.Workflow,
+		permEngine: opts.PermEngine,
+		safety:     opts.Safety,
+		sessions:   NewSessionManagerWithTTL(sessionTTL),
+		sink:       opts.Sink,
+		approvals:  opts.Approvals,
+		model:      opts.Model,
+		maxSteps:   maxSteps,
+		system:     system,
 	}
 
 	// Auto-wire token usage: when the provider tracks usage (the llm.Gateway

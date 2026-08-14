@@ -319,14 +319,15 @@ func newTestSite(t *testing.T) *testSite {
 func (s *testSite) newRuntime(t *testing.T, opt func(*runtime.Options)) *runtime.Runtime {
 	t.Helper()
 	opts := runtime.Options{
-		Provider:  s.provider,
-		Registry:  s.reg,
-		DocEngine: s.doc,
-		Workflow:  s.wf,
-		Safety:    s.safety,
-		Tools:     s.tr,
-		Sink:      s.sink,
-		Approvals: s.approvals,
+		Provider:   s.provider,
+		Registry:   s.reg,
+		DocEngine:  s.doc,
+		Workflow:   s.wf,
+		Safety:     s.safety,
+		Tools:      s.tr,
+		PermEngine: s.perm,
+		Sink:       s.sink,
+		Approvals:  s.approvals,
 	}
 	if opt != nil {
 		opt(&opts)

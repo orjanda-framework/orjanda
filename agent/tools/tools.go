@@ -489,7 +489,7 @@ func (t *toolRegistry) ForIdentity(ctx context.Context, id auth.Identity) []llm.
 	}
 
 	for _, c := range registeredCustomTools() {
-		if len(c.AllowedRoles) > 0 && !hasAnyRole(id, c.AllowedRoles) {
+		if t.permEngine.CheckRoles(ctx, "custom:"+c.Name, "call", c.AllowedRoles) != nil {
 			continue
 		}
 		out = append(out, llm.ToolDefinition{
@@ -504,10 +504,11 @@ func (t *toolRegistry) ForIdentity(ctx context.Context, id auth.Identity) []llm.
 // identityMayUse decides per-identity tool inclusion. Read/search/list/get
 // require the document-level Read check; create/update/delete require their
 // own verb check — all through the same perm.Engine path the API layer uses
-// (PRD §25.1). RPC method and custom tools are role-gated by AllowedRoles.
+// (PRD §25.1). RPC method and custom tools are role-gated by AllowedRoles
+// through the same perm.Engine path (TAD §9.2 / §10.4).
 func (t *toolRegistry) identityMayUse(ctx context.Context, id auth.Identity, tmpl ToolTemplate) bool {
 	if len(tmpl.allowedRoles) > 0 {
-		return hasAnyRole(id, tmpl.allowedRoles)
+		return t.permEngine.CheckRoles(ctx, "method:"+tmpl.Name, "call", tmpl.allowedRoles) == nil
 	}
 	switch tmpl.Verb {
 	case "execute_action":
@@ -634,20 +635,6 @@ func (t *toolRegistry) docHasWorkflow(docType string) bool {
 	for _, dt := range t.wfEngine.DocTypes() {
 		if dt == docType {
 			return true
-		}
-	}
-	return false
-}
-
-func hasAnyRole(id auth.Identity, roles []string) bool {
-	for _, r := range id.Roles {
-		if strings.EqualFold(r, "System Administrator") {
-			return true
-		}
-		for _, allowed := range roles {
-			if strings.EqualFold(r, allowed) {
-				return true
-			}
 		}
 	}
 	return false

@@ -3,14 +3,12 @@ package workflow
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/orjanda-framework/orjanda/audit"
-	"github.com/orjanda-framework/orjanda/auth"
 	"github.com/orjanda-framework/orjanda/dal"
 	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/event"
@@ -135,7 +133,6 @@ func (e *engine) AvailableTransitions(ctx context.Context, docType, currentState
 		return nil
 	}
 
-	id := auth.FromContext(ctx)
 	var available []Transition
 
 	for _, t := range def.Transitions {
@@ -143,10 +140,11 @@ func (e *engine) AvailableTransitions(ctx context.Context, docType, currentState
 			continue
 		}
 
-		if len(t.AllowedRoles) > 0 {
-			if !hasAnyRole(id, t.AllowedRoles) {
-				continue
-			}
+		// Role check through the shared perm.Engine path (TAD §8.1 step 3).
+		// Empty AllowedRoles grants (public transition), matching CheckAction's
+		// allow-when-no-Permissions behavior.
+		if e.permEngine.CheckRoles(ctx, docType, "transition:"+t.Action, t.AllowedRoles) != nil {
+			continue
 		}
 
 		available = append(available, t)
@@ -199,14 +197,11 @@ func (e *engine) Execute(ctx context.Context, docType, id, action string) error 
 		return orjerrors.Conflict(fmt.Sprintf("no such transition from current state %q for action %q", currentState, action))
 	}
 
-	// 3. Role check via shared perm path (TAD §8.1 step 3 & TAD §13.3 perm.denied logging).
-	userID := auth.FromContext(ctx).UserID
-	if len(targetTrans.AllowedRoles) > 0 {
-		idCtx := auth.FromContext(ctx)
-		if !hasAnyRole(idCtx, targetTrans.AllowedRoles) {
-			slog.Warn("perm.denied", "user", userID, "doctype", docType, "action", action, "via_agent", false)
-			return orjerrors.Permission(fmt.Sprintf("permission denied: user lacks required role for transition %q on %q", action, docType))
-		}
+	// 3. Role check through the shared perm.Engine path used by the Document
+	// Engine and Agent Executor (TAD §8.1 step 3; §13.3 perm.denied logging is
+	// emitted inside CheckRoles). Empty AllowedRoles grants (public transition).
+	if err := e.permEngine.CheckRoles(ctx, docType, "transition:"+action, targetTrans.AllowedRoles); err != nil {
+		return err
 	}
 
 	// 4-6. Execute transition inside a single dal.Tx (TAD §8.1 steps 4-6).
@@ -267,18 +262,4 @@ func (e *engine) Execute(ctx context.Context, docType, id, action string) error 
 
 		return nil
 	})
-}
-
-func hasAnyRole(id auth.Identity, allowed []string) bool {
-	for _, reqRole := range allowed {
-		if reqRole == "*" {
-			return true
-		}
-		for _, userRole := range id.Roles {
-			if strings.EqualFold(userRole, reqRole) {
-				return true
-			}
-		}
-	}
-	return false
 }
