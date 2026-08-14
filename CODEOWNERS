@@ -1,0 +1,45 @@
+# Orjanda CODEOWNERS
+#
+# Replace every <maintainer-handle-TBD> with the maintainer's GitHub handle
+# before publication. Until then, all paths default to the maintainer.
+#
+# Matching is by path; the last matching pattern wins. Keep the specific
+# subsystem lines for routing clarity once multiple maintainers exist.
+
+*                                                       @<maintainer-handle-TBD>
+
+# Framework core subsystems
+/errors/                                                @<maintainer-handle-TBD>
+/config/                                                @<maintainer-handle-TBD>
+/schema/                                                @<maintainer-handle-TBD>
+/app/                                                   @<maintainer-handle-TBD>
+/dal/                                                   @<maintainer-handle-TBD>
+/document/                                              @<maintainer-handle-TBD>
+/event/                                                 @<maintainer-handle-TBD>
+/perm/                                                  @<maintainer-handle-TBD>
+/workflow/                                              @<maintainer-handle-TBD>
+/audit/                                                 @<maintainer-handle-TBD>
+/auth/                                                  @<maintainer-handle-TBD>
+/orjanda-core/                                          @<maintainer-handle-TBD>
+
+# API and server
+/api/                                                   @<maintainer-handle-TBD>
+/server/                                                @<maintainer-handle-TBD>
+
+# Agent runtime
+/agent/                                                 @<maintainer-handle-TBD>
+
+# Admin UI and embedded assets
+/orjanda-ui/                                            @<maintainer-handle-TBD>
+/ui/                                                    @<maintainer-handle-TBD>
+
+# CLI
+/cli/                                                   @<maintainer-handle-TBD>
+/cmd/                                                   @<maintainer-handle-TBD>
+
+# Tests and docs
+/testing/                                               @<maintainer-handle-TBD>
+/docs/                                                  @<maintainer-handle-TBD>
+
+# GitHub configuration and CI
+/.github/                                               @<maintainer-handle-TBD>

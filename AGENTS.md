@@ -5,15 +5,18 @@ It is a navigation aid, not a spec — the specs live in `docs/` and always win 
 
 ## 0. Repository State (read this first)
 
-This repository is currently **documentation-only, pre-implementation**. `docs/` contains
-the full specification; no Go/TypeScript source exists yet. Everything in this file that
-describes "where X lives" is describing the **target layout defined by the docs**, not code
-that is already on disk. Before assuming a file or package exists, check the tree with `ls`/`find`
-— do not assume the planned structure below is already populated.
+This repository contains the **fully implemented Orjanda framework**: the Go module
+(module `github.com/orjanda-framework/orjanda`, `go 1.26.5`) is on disk with all packages
+in the layout described in §4, and `orjanda-ui/` ships the React admin UI with a committed
+`dist/`. Before assuming a file or package exists, check the tree with `ls`/`find` — but
+unlike earlier revisions, the structure below is the actual layout, not a target.
 
-Work should follow `docs/ORJANDA-IMPLEMENTATION-PLAN.md`'s phase order (Phase 0 → Phase 12).
-If asked to "add feature X," first locate which phase X belongs to and confirm its declared
-dependencies (earlier phases) are actually present before building on top of them.
+This is an **open-source project**. The public-facing documents (`README.md`,
+`CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`,
+`CHANGELOG.md`, and the `docs/*.md` guides) are the release artifacts; PRD/TAD remain the
+engineering source of truth. Do not create new internal-only documents without a scope
+decision — the internal implementation plan was deleted as part of the cleanup (see
+`OPENSOURCE-RELEASE-PLAN.md` if present, and `docs/development.md` "History notes").
 
 ---
 
@@ -43,12 +46,14 @@ Full architecture/interfaces: `docs/ORJANDA-TAD.md` §1–§2.
 |---|---|---|
 | `docs/ORJANDA-PRD.md` | *Why* and *what* — product goals, decisions, rationale, examples | Understand intent before changing behavior |
 | `docs/ORJANDA-TAD.md` | *Exact shape* — Go interfaces, struct fields, algorithms, data flows | Get the literal type signature / contract before writing code |
-| `docs/ORJANDA-IMPLEMENTATION-PLAN.md` | *Order and done-ness* — phases, dependencies, deliverables, completion checklists | Know what phase you're in, what must already exist, and how to tell you're finished |
+| `docs/getting-started.md` | How to use Orjanda to build an application | Follow the end-user onboarding flow |
+| `docs/architecture.md` | Prose-level tour of the pipeline | Orient before reading the TAD |
+| `docs/configuration.md` | User-facing config reference | Check a `orjanda.yaml` key or `ORJANDA_*` env var |
+| `docs/development.md` | How to develop the framework itself | Deep technical guide (deliberately disjoint from CONTRIBUTING.md) |
 
 **Rule for agents: never invent an interface, package name, or field the TAD doesn't
 already specify.** If the TAD is silent on something you need, say so explicitly rather than
-improvising new architecture — this project's docs are the source of truth by design
-(Implementation Plan §1: "introduces no new architecture, interfaces, or scope").
+improvising new architecture — this project's docs are the source of truth by design.
 
 This file does not repeat PRD/TAD content — it tells you *where* to find it.
 
@@ -73,52 +78,50 @@ This file does not repeat PRD/TAD content — it tells you *where* to find it.
 ```
 .
 ├── AGENTS.md                          # this file
-└── docs/
-    ├── ORJANDA-PRD.md
-    ├── ORJANDA-TAD.md
-    └── ORJANDA-IMPLEMENTATION-PLAN.md
-```
-
-### 4.2 Target (to be created per the Implementation Plan phases — package names and
-purposes are fixed by PRD §12.1 and TAD §5.1; do not rename or restructure them)
-```
-orjanda/                      # framework module (github.com/orjanda-framework/orjanda)
-├── cmd/orjanda/               # CLI binary (Cobra)                         — TAD §16, Plan Phase 10
-├── errors/                    # ErrorCode, Error interface                 — TAD §1.1, Plan Phase 0
-├── config/                    # Viper-backed orjanda.yaml / env loader     — TAD §1.3, Plan Phase 0
-├── app/                       # app.Definition, dependency DAG, lifecycle  — TAD §7,   Plan Phase 1
-├── schema/                    # Document, Registry, CompiledDoc, oj-tags   — TAD §2.1-2.2, Plan Phase 1
-├── dal/                       # Database, Dialect, query builder, Migrator — TAD §2.3, §14, Plan Phase 2
-│   ├── dialect/postgres/      # PostgreSQL adapter (pgx)
-│   └── dialect/sqlite/        # SQLite adapter (modernc.org/sqlite)
-├── cache/                     # cache.Store (in-process LRU default)      — TAD §9.1, Plan Phase 2
-├── search/                    # search.Backend (dialect FTS default)      — TAD §9.1, Plan Phase 2
-├── background/                # background.Job/Queue (inert stub in MVP) — TAD §9.1, Plan Phase 2
-├── document/                  # Document Engine: CRUD, validation         — TAD §3.2, Plan Phase 3-4
-├── event/                     # event.Bus, lifecycle hooks                — TAD §2.5, Plan Phase 4
-├── perm/                      # perm.Engine (RBAC+ABAC), perm.Rule        — TAD §2.4/§2.7, Plan Phase 4
-├── workflow/                  # workflow.Engine, state machine            — TAD §8,   Plan Phase 4
-├── audit/                     # audit.Log, Entry, transactional writes    — TAD §13,  Plan Phase 4
-├── auth/                      # Identity, auth.Provider, JWT default      — TAD §9.1, Plan Phase 5
-├── orjanda-core/               # bootstrapped User/Role/RolePermission app — TAD §4,   Plan Phase 5
-├── api/                       # REST + RPC + Metadata API, middleware     — PRD §14, TAD §3.2, Plan Phase 6
+├── README.md                          # public-facing landing page
+├── CONTRIBUTING.md, SECURITY.md, SUPPORT.md,
+│   GOVERNANCE.md, CODE_OF_CONDUCT.md, CHANGELOG.md,
+│   LICENSE                            # release artifacts (Apache-2.0)
+├── .github/                           # CI + issue/PR templates
+├── orjanda.yaml                       # reference config (env-interpolated)
+├── orjanda-codegen.mjs                # UI codegen script
+├── ui_embed.go, site.go               # composition root + embedded UI
+├── cmd/orjanda/                       # CLI binary (Cobra)               — TAD §16
+├── errors/                            # ErrorCode, Error interface       — TAD §1.1
+├── config/                            # Viper-backed orjanda.yaml/env    — TAD §1.3
+├── app/                               # app.Definition, dependency DAG   — TAD §7
+├── schema/                            # Document, Registry, CompiledDoc  — TAD §2.1-2.2
+├── dal/                               # Database, Dialect, Migrator      — TAD §2.3, §14
+│   ├── dialect/postgres/              # PostgreSQL adapter (pgx)
+│   └── dialect/sqlite/                # SQLite adapter (modernc.org/sqlite)
+├── cache/                             # cache.Store (in-process LRU)     — TAD §9.1
+├── search/                            # search.Backend (dialect FTS)     — TAD §9.1
+├── background/                        # background.Job/Queue (stub)      — TAD §9.1
+├── document/                          # Document Engine: CRUD, validation — TAD §3.2
+├── event/                             # event.Bus, lifecycle hooks       — TAD §2.5
+├── perm/                              # perm.Engine (RBAC+ABAC)          — TAD §2.4/§2.7
+├── workflow/                          # workflow.Engine, state machine   — TAD §8
+├── audit/                             # audit.Log, transactional writes  — TAD §13
+├── auth/                              # Identity, auth.Provider, JWT     — TAD §9.1
+├── orjanda-core/                      # bootstrapped User/Role app       — TAD §4
+├── api/                               # REST + RPC + Metadata API        — PRD §14
 │   ├── rest/  ├── rpc/  └── middleware/
-├── agent/                     # Agent Runtime
-│   ├── llm/                    # llm.Provider (OpenAI, Anthropic)         — TAD §2.7, Plan Phase 7
-│   ├── tools/                   # ToolRegistry: Compile/ForIdentity       — TAD §10,  Plan Phase 7
-│   ├── runtime/                  # Execute loop, Session/Context Manager  — TAD §11,  Plan Phase 8
-│   ├── planner/                   # ReAct + Plan-and-Execute, Plan schema — TAD §11.2-11.3, Plan Phase 8
-│   └── safety/                     # SafetyLayer, SafetyPolicy, approvals — TAD §12,  Plan Phase 8
-├── ui/                         # ui.Page registry, metadata serving       — TAD §9.1/§6.1, Plan Phase 9
-├── server/                     # Site composition root, HTTP assembly    — TAD §12.4, Plan Phase 6/9
-├── testing/                    # orjanda/testing harness (NewTestSite...) — TAD §17,  Plan Phase 11
-└── cli/                        # command implementations backing cmd/orjanda — TAD §16, Plan Phase 10
-
-orjanda-ui/                    # React + Tailwind Admin UI (embedded via embed.FS) — PRD §17, Plan Phase 9
-orjanda-app-hr-example/        # reference Application used for MVP validation — PRD §36, Plan Phase 12
+├── agent/                             # Agent Runtime
+│   ├── llm/                            # llm.Provider (OpenAI, Anthropic) — TAD §2.7
+│   ├── tools/                          # ToolRegistry: Compile/ForIdentity — TAD §10
+│   ├── runtime/                        # Execute loop, Session Manager    — TAD §11
+│   ├── planner/                        # ReAct + Plan-and-Execute         — TAD §11.2-11.3
+│   └── safety/                         # SafetyLayer, approvals           — TAD §12
+├── ui/                               # ui.Page registry, metadata        — TAD §9.1/§6.1
+├── server/                           # Site composition root, HTTP       — TAD §12.4
+├── testing/                          # orjanda/testing harness           — TAD §17
+├── cli/                              # command impls backing cmd/orjanda — TAD §16
+├── docs/                             # PRD, TAD, and the docs/* guides
+└── orjanda-ui/                       # React + Tailwind Admin UI (embedded via embed.FS) — PRD §17
 ```
 If you are about to create a package not listed above, stop and check the TAD — it is
-almost certainly meant to live inside one of these, not beside them.
+almost certainly meant to live inside one of these, not beside them. (`orjanda-app-hr-example`
+was removed from the repo; the HR scenarios in PRD §36–§38 remain the acceptance tests.)
 
 ---
 
@@ -177,7 +180,7 @@ quietly implementing it — these boundaries are deliberate scope limits, not ov
 
 | Concern | Choice |
 |---|---|
-| Language | Go 1.22+ |
+| Language | Go 1.26+ |
 | HTTP router | Chi |
 | CLI | Cobra |
 | DB drivers | `pgx` (PostgreSQL), `modernc.org/sqlite` (SQLite, no CGo) |
@@ -195,18 +198,13 @@ quietly implementing it — these boundaries are deliberate scope limits, not ov
 
 ## 9. Build, Test, and Verify
 
-No build/test commands exist yet — they come online starting **Plan Phase 0** (CI: `go build
-./...`, `go vet`, `golangci-lint`, unit tests) and **Plan Phase 10** (the `orjanda` CLI itself,
-including `orjanda test`). Once code exists:
-
-- Check `docs/ORJANDA-IMPLEMENTATION-PLAN.md`'s per-phase **Completion criteria** checklist
-  for the phase you're working in — that checklist is the acceptance bar, not "it compiles."
-- Prefer writing tests via `orjanda/testing` (Phase 11) over ad hoc fixtures once that
-  package exists; before it exists, follow the harness shape already specified in TAD §17
-  so later retrofitting is mechanical.
-- A change that touches a Document's schema, permissions, or agent-tool surface should be
-  checked against the worked examples in PRD §36–§38 (the HR reference scenarios) — those
-  are the plan's actual acceptance tests (Plan Phase 12).
+The framework is implemented, so the CI commands below run and must pass. CI
+(`.github/workflows/ci.yml`) mirrors them exactly: `go build ./...`, `go vet`,
+`go test -race -count=1 ./...`, golangci-lint (with the `gofmt` formatter and
+an explicit `gofmt -l .` gate), `go mod tidy` drift check, the testcontainers
+integration lane (`go test -tags integration -count=1 ./testing/...`), and the
+frontend lane (`npm ci && npm run typecheck && npm test && npm run build` in
+`orjanda-ui/`).
 
 ---
 
@@ -214,7 +212,7 @@ including `orjanda test`). Once code exists:
 
 1. **Locate intent** — find the relevant PRD section (why does this need to exist / what should it do).
 2. **Locate contract** — find the relevant TAD section (exact interface, types, algorithm). If it's not there, don't invent one — ask.
-3. **Locate sequencing** — find the relevant Implementation Plan phase (what must already exist; what "done" means for this change).
-4. **Implement** inside the package the tree in §4.2 assigns it to.
-5. **Verify** against that phase's completion criteria before considering the change finished.
+3. **Locate sequencing** — find the relevant documentation (this file, `docs/development.md`) or the open-source release plan for what must already exist.
+4. **Implement** inside the package the tree in §4.1 assigns it to.
+5. **Verify** with the build/test/lint suite in §9 before considering the change finished.
 6. **Cite, don't copy** — reference PRD/TAD section numbers in comments and commit messages instead of duplicating their text.
