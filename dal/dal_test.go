@@ -321,6 +321,7 @@ func TestQuery_QFilter_RestrictsToFTSMatches(t *testing.T) {
 	require.NoError(t, err)
 	base["title"] = "Something Else"
 	base["name"] = "Second Record"
+	base["email"] = "second@example.com"
 	otherID, err := db.Insert(ctx, "TestDoc", base)
 	require.NoError(t, err)
 

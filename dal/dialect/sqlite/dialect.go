@@ -53,6 +53,13 @@ func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 		if f.Required && f.Name != "ID" {
 			col += " NOT NULL"
 		}
+		if f.Unique {
+			// Match the PostgreSQL dialect (dal/dialect/postgres/dialect.go):
+			// unique constraints are emitted as inline column constraints so a
+			// concurrent duplicate insert fails at the database rather than
+			// silently succeeding (REVIEW-2026-08-12 finding 12).
+			col += " UNIQUE"
+		}
 		colDefs = append(colDefs, col)
 	}
 

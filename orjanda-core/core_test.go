@@ -1,7 +1,13 @@
 package core_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/orjanda-framework/orjanda/auth"
@@ -11,6 +17,7 @@ import (
 	"github.com/orjanda-framework/orjanda/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	modsqlite "modernc.org/sqlite"
 )
 
 // buildRegistry compiles a schema.Registry containing the four core documents.
@@ -210,6 +217,125 @@ func TestBootstrap_IsIdempotent(t *testing.T) {
 	users, err := db.Query(ctx, sel("User", nil))
 	require.NoError(t, err)
 	assert.Len(t, users, 1, "only one user must exist after two bootstrap calls")
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap — concurrency safety (REVIEW-2026-08-12 finding 12)
+// ---------------------------------------------------------------------------
+
+func TestBootstrap_ConcurrentCallsCreateSingleAdmin(t *testing.T) {
+	reg := buildRegistry(t)
+	// File-backed DB so concurrent connections share one database (a
+	// ":memory:" DSN gives every pooled connection its own private database).
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "bootstrap.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	docs := reg.List()
+	db.RegisterDocs(docs)
+	for _, doc := range docs {
+		for _, child := range doc.ChildTables {
+			db.RegisterDoc(child.TypeName, child.TableName)
+		}
+	}
+	require.NoError(t, db.CreateTables(docs))
+
+	ctx := context.Background()
+	const callers = 8
+
+	var wg sync.WaitGroup
+	errs := make([]error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, e := core.Bootstrap(ctx, db, reg)
+			errs[idx] = e
+		}(i)
+	}
+	wg.Wait()
+
+	for i, e := range errs {
+		assert.NoError(t, e, "concurrent bootstrap call %d must not error", i)
+	}
+
+	// Exactly one admin user, one role, one permission set per DocType.
+	users, err := db.Query(ctx, sel("User", nil))
+	require.NoError(t, err)
+	assert.Len(t, users, 1, "exactly one admin user must exist after %d concurrent bootstraps", callers)
+
+	roles, err := db.Query(ctx, sel("Role", map[string]any{"role_name": core.AdminRole}))
+	require.NoError(t, err)
+	assert.Len(t, roles, 1, "exactly one System Administrator role must exist")
+
+	for _, doc := range reg.List() {
+		perms, qErr := db.Query(ctx, sel("RolePermission", map[string]any{
+			"role":     core.AdminRole,
+			"doc_type": doc.Name,
+		}))
+		require.NoError(t, qErr)
+		assert.Len(t, perms, 1, "exactly one permission row per DocType after concurrent bootstraps")
+	}
+}
+
+// captureHandler records slog records as text for assertions.
+type captureHandler struct {
+	buf *bytes.Buffer
+}
+
+func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	fmt.Fprintln(h.buf, r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		fmt.Fprintf(h.buf, "  %s=%v\n", a.Key, a.Value.Any())
+		return true
+	})
+	return nil
+}
+
+func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *captureHandler) WithGroup(_ string) slog.Handler      { return h }
+
+func TestBootstrap_DoesNotLogPassword(t *testing.T) {
+	reg := buildRegistry(t)
+	db := buildDB(t, reg)
+	ctx := context.Background()
+
+	old := slog.Default()
+	defer slog.SetDefault(old)
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(&captureHandler{buf: &buf}))
+
+	password, err := core.Bootstrap(ctx, db, reg)
+	require.NoError(t, err)
+	require.NotEmpty(t, password)
+
+	assert.Contains(t, buf.String(), core.AdminEmail, "bootstrap still logs the admin email")
+	assert.NotContains(t, buf.String(), password, "the generated password must never reach the log stream (REVIEW-2026-08-12 finding 12)")
+}
+
+// TestDB_UniqueConstraintPreventsDuplicateAdminEmail proves the SQLite dialect
+// emits UNIQUE for oj:"unique" fields (matching PostgreSQL). Bootstrap bypasses
+// the document engine, so the database constraint is the only guard against a
+// concurrent duplicate admin; a duplicate insert here must fail at the DAL.
+func TestDB_UniqueConstraintPreventsDuplicateAdminEmail(t *testing.T) {
+	reg := buildRegistry(t)
+	db := buildDB(t, reg)
+	ctx := context.Background()
+
+	_, err := core.Bootstrap(ctx, db, reg)
+	require.NoError(t, err)
+
+	_, err = db.Insert(ctx, "User", map[string]any{
+		"email":     core.AdminEmail,
+		"full_name": "Second Admin",
+	})
+	require.Error(t, err, "duplicate admin email must be rejected by the database")
+
+	var sqliteErr *modsqlite.Error
+	require.True(t, errors.As(err, &sqliteErr), "error must unwrap to the sqlite driver error, got %T", err)
+	assert.Equal(t, 2067, sqliteErr.Code(), "expected SQLITE_CONSTRAINT_UNIQUE (2067)")
 }
 
 // ---------------------------------------------------------------------------

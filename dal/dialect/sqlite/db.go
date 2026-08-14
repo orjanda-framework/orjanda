@@ -26,21 +26,31 @@ type DB struct {
 }
 
 // Open opens a SQLite database at the given DSN (file path or ":memory:").
+//
+// Pragmas are configured per-connection via modernc shorthand DSN keys, not
+// ExecContext: an ExecContext PRAGMA only touches the single pooled connection
+// that executes it, leaving every later connection (and therefore concurrent
+// writers) unconfigured.
+//   - _journal_mode=WAL: concurrent read/write safety.
+//   - _foreign_keys=1: enable foreign-key enforcement.
+//   - _busy_timeout=5000: wait a bounded time for a held write lock instead of
+//     failing immediately with SQLITE_BUSY.
+//   - _txlock=immediate: every transaction is BEGIN IMMEDIATE, taking the write
+//     lock at transaction start. A deferred transaction that reads first and
+//     writes later holds a stale WAL snapshot and fails the upgrade with
+//     SQLITE_BUSY_SNAPSHOT, which the busy handler does not retry — the exact
+//     failure mode of two serve instances racing the first-run bootstrap
+//     (REVIEW-2026-08-12 finding 12).
 func Open(dsn string) (*DB, error) {
-	ctx := context.Background()
+	const pragmas = "_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=1&_txlock=immediate"
+	if strings.Contains(dsn, "?") {
+		dsn += "&" + pragmas
+	} else {
+		dsn += "?" + pragmas
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, orjerrors.Internal("failed to open sqlite database", err)
-	}
-	// Enforce WAL mode for concurrent read/write safety.
-	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
-		_ = db.Close()
-		return nil, orjerrors.Internal("failed to enable WAL mode", err)
-	}
-	// Enable foreign-key enforcement.
-	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
-		_ = db.Close()
-		return nil, orjerrors.Internal("failed to enable foreign keys", err)
 	}
 	return &DB{
 		db:            db,

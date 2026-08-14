@@ -107,7 +107,11 @@ func runServe(ctx context.Context, b siteBuilder, cfgFile string, port int) erro
 			if password, berr := core.Bootstrap(ctx, site.DB, site.Registry); berr != nil {
 				slog.Warn("serve: bootstrap skipped", "error", berr)
 			} else if password != "" {
-				slog.Info("bootstrapped system administrator", "email", core.AdminEmail, "password", password)
+				slog.Info("bootstrapped system administrator", "email", core.AdminEmail)
+				// Print the one-time credential to stdout, never to the
+				// structured log stream (REVIEW-2026-08-12 finding 12). TAD §4.2
+				// step 3 requires the password reach the operator on first run.
+				fmt.Printf("admin password: %s\n", password)
 			}
 		}
 	}

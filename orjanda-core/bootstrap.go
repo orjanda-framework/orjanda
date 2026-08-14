@@ -3,15 +3,19 @@ package core
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"log/slog"
 	"math/big"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/oklog/ulid/v2"
 	"github.com/orjanda-framework/orjanda/auth"
 	"github.com/orjanda-framework/orjanda/dal"
 	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/schema"
+	modsqlite "modernc.org/sqlite"
 )
 
 const (
@@ -19,54 +23,72 @@ const (
 	AdminRole  = "System Administrator"
 )
 
+// errAlreadyBootstrapped is returned by the bootstrap transaction when the
+// User table is already populated; Bootstrap maps it back to a no-op success.
+var errAlreadyBootstrapped = errors.New("system already bootstrapped")
+
 // Bootstrap executes the first-run system administrator setup if no users exist.
 // Returns (password, nil) if bootstrapped, or ("", nil) if already bootstrapped.
-// Idempotent: does nothing on subsequent calls. See TAD §4.2.
+// Idempotent: does nothing on subsequent calls. The whole sequence runs inside
+// a single transaction (REVIEW-2026-08-12 finding 12): the User-empty check and
+// every insert share one write transaction, and the database enforces
+// uniqueness on User.email / Role.role_name, so concurrent serve instances can
+// never create duplicate admins. See TAD §4.2.
 func Bootstrap(ctx context.Context, db dal.Database, reg schema.Registry) (string, error) {
-	// 1. Check if any users exist
-	users, err := db.Query(ctx, dal.Select{
-		DocType: "User",
-		Limit:   1,
-	})
-	if err == nil && len(users) > 0 {
-		// System already bootstrapped
-		return "", nil
+	// Generate and hash the password before taking the write lock so the
+	// bootstrap transaction stays as short as possible.
+	password, err := generateRandomPassword(16)
+	if err != nil {
+		return "", err
+	}
+	hashedPassword, err := auth.HashPassword(password)
+	if err != nil {
+		return "", err
 	}
 
-	// 2. Create "System Administrator" Role if missing
-	roles, err := db.Query(ctx, dal.Select{
-		DocType: "Role",
-		Filters: map[string]any{"role_name": AdminRole},
-		Limit:   1,
-	})
-	var roleID string
-	if err == nil && len(roles) > 0 {
-		roleID, _ = roles[0]["id"].(string)
-	} else {
-		roleID = ulid.Make().String()
+	err = db.Transaction(ctx, func(tx dal.Tx) error {
+		// 1. Already bootstrapped? Every check and write below shares this
+		// transaction, so no interleaving instance can slip an admin in between
+		// our check and our inserts.
+		users, qErr := tx.Query(ctx, dal.Select{DocType: "User", Limit: 1})
+		if qErr != nil {
+			return qErr
+		}
+		if len(users) > 0 {
+			return errAlreadyBootstrapped
+		}
+
 		now := time.Now()
-		err := db.Transaction(ctx, func(tx dal.Tx) error {
-			_, err := tx.Insert(ctx, "Role", map[string]any{
+
+		// 2. Create "System Administrator" Role if missing.
+		var roleID string
+		roles, qErr := tx.Query(ctx, dal.Select{
+			DocType: "Role",
+			Filters: map[string]any{"role_name": AdminRole},
+			Limit:   1,
+		})
+		if qErr != nil {
+			return qErr
+		}
+		if len(roles) > 0 {
+			roleID, _ = roles[0]["id"].(string)
+		} else {
+			roleID = ulid.Make().String()
+			if _, insErr := tx.Insert(ctx, "Role", map[string]any{
 				"id":         roleID,
 				"role_name":  AdminRole,
 				"name":       AdminRole,
 				"created_at": now,
 				"updated_at": now,
 				"deleted":    false,
-			})
-			return err
-		})
-		if err != nil {
-			return "", orjerrors.Internal("failed to create admin role", err)
+			}); insErr != nil {
+				return insErr
+			}
 		}
-	}
 
-	// 3. Grant "System Administrator" permissions on all registered DocTypes
-	compiledDocs := reg.List()
-	now := time.Now()
-	err = db.Transaction(ctx, func(tx dal.Tx) error {
-		for _, doc := range compiledDocs {
-			existing, qErr := db.Query(ctx, dal.Select{
+		// 3. Grant "System Administrator" permissions on all registered DocTypes.
+		for _, doc := range reg.List() {
+			existing, qErr := tx.Query(ctx, dal.Select{
 				DocType: "RolePermission",
 				Filters: map[string]any{
 					"role":     AdminRole,
@@ -74,13 +96,14 @@ func Bootstrap(ctx context.Context, db dal.Database, reg schema.Registry) (strin
 				},
 				Limit: 1,
 			})
-			if qErr == nil && len(existing) > 0 {
+			if qErr != nil {
+				return qErr
+			}
+			if len(existing) > 0 {
 				continue
 			}
-
-			rpID := ulid.Make().String()
-			_, insErr := tx.Insert(ctx, "RolePermission", map[string]any{
-				"id":         rpID,
+			if _, insErr := tx.Insert(ctx, "RolePermission", map[string]any{
+				"id":         ulid.Make().String(),
 				"role":       AdminRole,
 				"doc_type":   doc.Name,
 				"read":       true,
@@ -91,34 +114,14 @@ func Bootstrap(ctx context.Context, db dal.Database, reg schema.Registry) (strin
 				"created_at": now,
 				"updated_at": now,
 				"deleted":    false,
-			})
-			if insErr != nil {
+			}); insErr != nil {
 				return insErr
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		return "", orjerrors.Internal("failed to grant admin permissions", err)
-	}
 
-	// 4. Generate random password
-	password, err := generateRandomPassword(16)
-	if err != nil {
-		return "", err
-	}
-
-	hashedPassword, err := auth.HashPassword(password)
-	if err != nil {
-		return "", err
-	}
-
-	// 5. Create admin@localhost user & UserRole link
-	adminUserID := ulid.Make().String()
-	userRoleID := ulid.Make().String()
-
-	err = db.Transaction(ctx, func(tx dal.Tx) error {
-		_, uErr := tx.Insert(ctx, "User", map[string]any{
+		// 4. Create admin@localhost user & UserRole link.
+		adminUserID := ulid.Make().String()
+		if _, uErr := tx.Insert(ctx, "User", map[string]any{
 			"id":         adminUserID,
 			"email":      AdminEmail,
 			"full_name":  "System Administrator",
@@ -127,25 +130,51 @@ func Bootstrap(ctx context.Context, db dal.Database, reg schema.Registry) (strin
 			"created_at": now,
 			"updated_at": now,
 			"deleted":    false,
-		})
-		if uErr != nil {
+		}); uErr != nil {
 			return uErr
 		}
-
-		_, urErr := tx.Insert(ctx, "UserRole", map[string]any{
-			"id":        userRoleID,
+		if _, urErr := tx.Insert(ctx, "UserRole", map[string]any{
+			"id":        ulid.Make().String(),
 			"parent_id": adminUserID,
 			"idx":       0,
 			"role":      AdminRole,
-		})
-		return urErr
+		}); urErr != nil {
+			return urErr
+		}
+		return nil
 	})
 	if err != nil {
-		return "", orjerrors.Internal("failed to create admin user", err)
+		if errors.Is(err, errAlreadyBootstrapped) || isUniqueViolation(err) {
+			// Either already bootstrapped, or a concurrent instance won the
+			// race and our duplicate insert hit the unique constraint.
+			return "", nil
+		}
+		return "", orjerrors.Internal("bootstrap failed", err)
 	}
 
-	slog.Info("bootstrapped system administrator account", "email", AdminEmail, "password", password)
+	// The generated password must reach the operator exactly once, but never
+	// the structured log stream (REVIEW-2026-08-12 finding 12). Callers print
+	// it to stdout; slog only records that the account was created.
+	slog.Info("bootstrapped system administrator account", "email", AdminEmail)
 	return password, nil
+}
+
+// isUniqueViolation reports whether err is a unique-constraint violation from
+// either supported driver (modernc SQLite or pgx/PostgreSQL). Bootstrap treats
+// it as "a concurrent instance already bootstrapped" and returns a no-op.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		// SQLSTATE 23505 = unique_violation.
+		return pgErr.Code == "23505"
+	}
+	var sqliteErr *modsqlite.Error
+	if errors.As(err, &sqliteErr) {
+		// SQLITE_CONSTRAINT_UNIQUE = 2067 (extended code of SQLITE_CONSTRAINT).
+		return sqliteErr.Code() == 2067 ||
+			(sqliteErr.Code() == 19 && strings.Contains(sqliteErr.Error(), "UNIQUE"))
+	}
+	return false
 }
 
 func generateRandomPassword(length int) (string, error) {
