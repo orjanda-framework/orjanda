@@ -49,6 +49,9 @@ Thumbs.db
 # Regenerate it with `npm run build` in orjanda-ui/.
 node_modules/
 orjanda-ui/.vite/
+# Registry content-hash marker written by `orjanda serve`'s codegen pass
+# (TAD §6.3 step 3); derived state, never committed.
+orjanda-ui/src/generated/.registry-hash
 
 # ── Temporary / scratch ──────────────────────────────────────────────────────
 tmp/

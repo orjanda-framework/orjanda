@@ -13,7 +13,7 @@
         "type": "string",
         "label": "ID",
         "required": true,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "Name",
@@ -29,7 +29,7 @@
         "type": "string",
         "label": "Owner",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "CreatedAt",
@@ -37,7 +37,7 @@
         "type": "datetime",
         "label": "Created At",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "UpdatedAt",
@@ -45,7 +45,7 @@
         "type": "datetime",
         "label": "Updated At",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "ModifiedBy",
@@ -53,7 +53,7 @@
         "type": "string",
         "label": "Modified By",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "DocStatus",
@@ -61,7 +61,7 @@
         "type": "int",
         "label": "Doc Status",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "Deleted",
@@ -69,7 +69,7 @@
         "type": "bool",
         "label": "Deleted",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "Name",
@@ -171,7 +171,7 @@
         "type": "string",
         "label": "ID",
         "required": true,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "Name",
@@ -187,7 +187,7 @@
         "type": "string",
         "label": "Owner",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "CreatedAt",
@@ -195,7 +195,7 @@
         "type": "datetime",
         "label": "Created At",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "UpdatedAt",
@@ -203,7 +203,7 @@
         "type": "datetime",
         "label": "Updated At",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "ModifiedBy",
@@ -211,7 +211,7 @@
         "type": "string",
         "label": "Modified By",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "DocStatus",
@@ -219,7 +219,7 @@
         "type": "int",
         "label": "Doc Status",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "Deleted",
@@ -227,7 +227,7 @@
         "type": "bool",
         "label": "Deleted",
         "required": false,
-        "hidden": false
+        "hidden": true
       },
       {
         "name": "Label",

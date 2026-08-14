@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 
 	"github.com/orjanda-framework/orjanda/schema"
@@ -39,7 +41,7 @@ type RegenerateOptions struct {
 	// Registry is the compiled Registry to snapshot.
 	Registry schema.Registry
 	// ScriptPath is the absolute path to the @orjanda/codegen Node script.
-	// Defaults to the orjanda-codegen.mjs beside the repo root.
+	// Defaults to DefaultScriptPath.
 	ScriptPath string
 	// InputPath is where the TAD §6.3 step-1 payload is written. Defaults to
 	// "orjanda-ui/src/generated/schema.json".
@@ -54,6 +56,91 @@ type RegenerateOptions struct {
 	NodeBin string
 }
 
+// defaultPaths resolves the OutputDir/InputPath/MarkerPath defaults (relative
+// to the working directory, TAD §6.3 step 3).
+func defaultPaths(opts RegenerateOptions) (outDir, marker, inputPath string) {
+	outDir = opts.OutputDir
+	if outDir == "" {
+		outDir = "orjanda-ui/src/generated"
+	}
+	marker = opts.MarkerPath
+	if marker == "" {
+		marker = filepath.Join(outDir, ".registry-hash")
+	}
+	inputPath = opts.InputPath
+	if inputPath == "" {
+		inputPath = filepath.Join(outDir, "schema.json")
+	}
+	return outDir, marker, inputPath
+}
+
+// moduleRoot returns the framework module root (the directory containing
+// orjanda-codegen.mjs) by locating this source file in the module tree. When
+// the framework is consumed through Go modules the root resolves inside the
+// module cache, so Applications never need a copy of the script.
+func moduleRoot() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return ""
+	}
+	return filepath.Dir(filepath.Dir(file))
+}
+
+// DefaultScriptPath locates the @orjanda/codegen Node script: an
+// orjanda-codegen.mjs in the working directory when present (a vendored or
+// workspace copy), else the one shipped in the framework module. When neither
+// exists it falls back to the relative name so the exec error names the binary.
+func DefaultScriptPath() string {
+	if _, err := os.Stat("orjanda-codegen.mjs"); err == nil {
+		if abs, err := filepath.Abs("orjanda-codegen.mjs"); err == nil {
+			return abs
+		}
+	}
+	if root := moduleRoot(); root != "" {
+		p := filepath.Join(root, "orjanda-codegen.mjs")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return "orjanda-codegen.mjs"
+}
+
+// MarshalInput renders the TAD §6.3 step-1 payload exactly as Regenerate writes
+// it (documents sorted by Name, two-space indentation) — the byte shape the
+// committed orjanda-ui/src/generated/schema.json must match.
+func MarshalInput(reg schema.Registry) ([]byte, error) {
+	input, err := CodegenInput(reg)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(input, func(i, j int) bool { return input[i].Name < input[j].Name })
+	return json.MarshalIndent(input, "", "  ")
+}
+
+// VerifyCommittedSchema is the node-free half of the generated-output
+// consistency check (REVIEW-2026-08-12 finding 5): the on-disk step-1 payload
+// must be byte-identical to a fresh CodegenInput for reg. `orjanda bench`
+// fails fast on a mismatch so a stale TypeScript client cannot ship unnoticed;
+// the UI test suite uses it as the commit-time gate on the checked-in
+// orjanda-ui/src/generated/schema.json.
+func VerifyCommittedSchema(reg schema.Registry, inputPath string) error {
+	if inputPath == "" {
+		inputPath = filepath.Join("orjanda-ui", "src", "generated", "schema.json")
+	}
+	committed, err := os.ReadFile(inputPath)
+	if err != nil {
+		return fmt.Errorf("ui: read committed codegen input: %w", err)
+	}
+	fresh, err := MarshalInput(reg)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(committed, fresh) {
+		return fmt.Errorf("ui: committed %s is stale — run `npm run codegen` (or `orjanda serve` once) and commit the regenerated output", inputPath)
+	}
+	return nil
+}
+
 // Regenerate runs the codegen pass if and only if the Registry's content hash
 // differs from the recorded marker (TAD §6.3 step 3). It returns true when the
 // pass ran. On success the marker is updated to the current hash.
@@ -63,29 +150,13 @@ func Regenerate(ctx context.Context, opts RegenerateOptions) (bool, error) {
 		return false, err
 	}
 
-	outDir := opts.OutputDir
-	if outDir == "" {
-		outDir = "orjanda-ui/src/generated"
-	}
-	marker := opts.MarkerPath
-	if marker == "" {
-		marker = filepath.Join(outDir, ".registry-hash")
-	}
-	inputPath := opts.InputPath
-	if inputPath == "" {
-		inputPath = filepath.Join(outDir, "schema.json")
-	}
+	outDir, marker, inputPath := defaultPaths(opts)
 
 	if prior, err := os.ReadFile(marker); err == nil && string(prior) == hash {
 		return false, nil
 	}
 
-	input, err := CodegenInput(opts.Registry)
-	if err != nil {
-		return false, err
-	}
-	sort.Slice(input, func(i, j int) bool { return input[i].Name < input[j].Name })
-	raw, err := json.MarshalIndent(input, "", "  ")
+	raw, err := MarshalInput(opts.Registry)
 	if err != nil {
 		return false, err
 	}
@@ -99,11 +170,7 @@ func Regenerate(ctx context.Context, opts RegenerateOptions) (bool, error) {
 
 	script := opts.ScriptPath
 	if script == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return false, err
-		}
-		script = filepath.Join(wd, "orjanda-codegen.mjs")
+		script = DefaultScriptPath()
 	}
 	node := opts.NodeBin
 	if node == "" {
