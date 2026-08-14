@@ -145,7 +145,7 @@ func runBench(ctx context.Context, b siteBuilder, cfgFile string) error {
 			if err != nil {
 				return err
 			}
-			if n := len(diff.CreateTables) + len(diff.AlterTables); n > 0 {
+			if n := diff.ChangeCount(); n > 0 {
 				return errf("bench: database has %d pending schema change(s) — run `orjanda migrate diff`/`migrate up` before starting", n)
 			}
 		}

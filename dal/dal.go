@@ -71,6 +71,14 @@ type Dialect interface {
 	CreateTable(doc schema.CompiledDoc) string
 	// AlterTable returns ALTER TABLE statements for a set of column changes.
 	AlterTable(diff schema.TableAlteration) []string
+	// ColumnType returns the dialect-specific DDL type for a Field (the same
+	// string CreateTable/AlterTable embed for it). Used by Migrator.Diff to
+	// compute the desired column type when detecting type changes.
+	ColumnType(f schema.Field) string
+	// NormalizeColumnType canonicalizes a live-reported column type (as
+	// returned by a TableInspector) into a comparable token so Diff can match
+	// it against ColumnType's output regardless of case/parameterization.
+	NormalizeColumnType(raw string) string
 	// SelectSQL renders a Select query to (sql, args).
 	SelectSQL(q Select) (string, []any)
 	// InsertSQL renders an INSERT statement to (sql, args) — excludes the ID
@@ -109,9 +117,9 @@ type Migrator interface {
 	// compiled Registry. Returns a SchemaDiff describing what would change.
 	Diff(ctx context.Context, reg schema.Registry) (*schema.SchemaDiff, error)
 	// Write persists diff as a versioned Goose SQL file under dir.
-	// Returns the filename written. If diff contains destructive changes and
-	// allowDestructive is false, Write returns an error with a list of the
-	// skipped statements. See TAD §14.1 step 2.
+	// Returns the filename written. If diff contains destructive changes
+	// (dropped columns/tables) and allowDestructive is false, Write returns an
+	// error with a list of the skipped statements. See TAD §14.1 step 2.
 	Write(diff *schema.SchemaDiff, dir string, allowDestructive bool) (filename string, err error)
 	// Up applies all pending Goose migration files in dir.
 	Up(ctx context.Context, dir string) error

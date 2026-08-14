@@ -294,6 +294,21 @@ type SchemaDiff struct {
 	CreateTables []CompiledDoc
 	// AlterTables is the list of existing tables with column changes.
 	AlterTables []TableAlteration
+	// DropTables lists orphaned Orjanda-owned tables that exist in the live
+	// database but are no longer produced by the Registry (requires
+	// --allow-destructive, see TAD §14.1 step 2).
+	DropTables []string
+}
+
+// ChangeCount returns the total number of pending schema changes across all
+// diff categories. Used by the bench fail-fast gate and `migrate diff`'s
+// "no schema changes" check (REVIEW-2026-08-12 finding 9: dropped tables must
+// count).
+func (d *SchemaDiff) ChangeCount() int {
+	if d == nil {
+		return 0
+	}
+	return len(d.CreateTables) + len(d.AlterTables) + len(d.DropTables)
 }
 
 // TableAlteration describes column-level changes to an existing table.
@@ -312,6 +327,10 @@ type TableAlteration struct {
 type ColumnAlteration struct {
 	// FieldName is the Go struct field name.
 	FieldName string
+	// ColumnName is the SQL column name being altered. Added for type-change
+	// rendering (TAD §14's struct is silent on it; without it ALTER COLUMN
+	// cannot be generated).
+	ColumnName string
 	// OldColumn is the previous DB column definition (dialect-specific).
 	OldColumn string
 	// NewColumn is the desired DB column definition.

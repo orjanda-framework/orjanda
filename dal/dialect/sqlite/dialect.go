@@ -52,9 +52,22 @@ func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	return sb.String()
 }
 
+// ColumnType returns the DDL type SQLite uses for the given Field.
+func (d *Dialect) ColumnType(f schema.Field) string { return sqliteType(f) }
+
+// NormalizeColumnType canonicalizes a PRAGMA-reported column type (which for
+// SQLite is the literal type string written at CREATE time) for comparison
+// with ColumnType's output.
+func (d *Dialect) NormalizeColumnType(raw string) string {
+	return strings.ToUpper(strings.TrimSpace(raw))
+}
+
 // AlterTable generates ALTER TABLE SQL for column additions and drops.
 // Note: SQLite does not support DROP COLUMN in older versions natively,
 // but modern sqlite (3.35.0+) supports ALTER TABLE DROP COLUMN.
+// SQLite has no ALTER COLUMN TYPE; type changes are surfaced as a review
+// comment so the author can write the required table rebuild manually
+// (forward-only, TAD §14.1 step 2).
 func (d *Dialect) AlterTable(diff schema.TableAlteration) []string {
 	stmts := make([]string, 0)
 	for _, f := range diff.AddColumns {
@@ -69,6 +82,11 @@ func (d *Dialect) AlterTable(diff schema.TableAlteration) []string {
 	}
 	for _, col := range diff.DropColumns {
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %q DROP COLUMN %q", diff.TableName, col))
+	}
+	for _, a := range diff.AlterColumns {
+		stmts = append(stmts, fmt.Sprintf(
+			"-- NOTE (sqlite): ALTER COLUMN TYPE is unsupported; rebuild %q manually to change %q from %s to %s (see TAD §14.1 step 2)",
+			diff.TableName, a.ColumnName, a.OldColumn, a.NewColumn))
 	}
 	return stmts
 }

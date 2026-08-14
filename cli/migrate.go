@@ -33,7 +33,7 @@ func newMigrateDiffCmd(b siteBuilder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff",
 		Short: "Generate a migration from schema changes",
-		Long:  "Compares the compiled Registry against the live database and writes a versioned Goose migration (TAD §14.1). Destructive changes require --allow-destructive.",
+		Long:  "Compares the compiled Registry against the live database and writes a versioned Goose migration (TAD §14.1). Destructive changes (dropped columns/tables) require --allow-destructive.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -54,7 +54,7 @@ func newMigrateDiffCmd(b siteBuilder) *cobra.Command {
 	cmd.Flags().StringVar(&cfgFile, "config", "", "path to orjanda.yaml (defaults to orjanda.yaml in cwd)")
 	cmd.Flags().StringVar(&dir, "dir", "migrations", "directory to write the migration file into")
 	cmd.Flags().StringVar(&dialect, "dialect", "", "target SQL dialect (must match database.driver)")
-	cmd.Flags().BoolVar(&allowDestructive, "allow-destructive", false, "include destructive changes (dropped columns) in the written migration")
+	cmd.Flags().BoolVar(&allowDestructive, "allow-destructive", false, "include destructive changes (dropped columns/tables) in the written migration")
 
 	return cmd
 }
@@ -136,7 +136,7 @@ func runMigrateDiff(ctx context.Context, b siteBuilder, cfgFile, dir, dialect st
 	if err != nil {
 		return err
 	}
-	if diff == nil || (len(diff.CreateTables) == 0 && len(diff.AlterTables) == 0) {
+	if diff == nil || diff.ChangeCount() == 0 {
 		fmt.Println("no schema changes")
 		return nil
 	}

@@ -508,14 +508,15 @@ func (d *DB) ExistingTables() (map[string]bool, error) {
 	return tables, rows.Err()
 }
 
-// ExistingColumns returns the set of column names for a given table.
-func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
+// ExistingColumns returns the live column names of a table mapped to the type
+// each column reports (PRAGMA type strings, as written at CREATE time).
+func (d *DB) ExistingColumns(tableName string) (map[string]string, error) {
 	rows, err := d.db.QueryContext(context.Background(), fmt.Sprintf("PRAGMA table_info(%q)", tableName))
 	if err != nil {
 		return nil, orjerrors.Internal("PRAGMA table_info failed", err)
 	}
 	defer func() { _ = rows.Close() }()
-	cols := make(map[string]bool)
+	cols := make(map[string]string)
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -525,7 +526,7 @@ func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
 		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
 			return nil, orjerrors.Internal("scan column info", err)
 		}
-		cols[name] = true
+		cols[name] = typ
 	}
 	return cols, rows.Err()
 }

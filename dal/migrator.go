@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	atlas "ariga.io/atlas/sql/schema"
@@ -34,7 +35,9 @@ func NewMigrator(d Dialect, db *sql.DB) Migrator {
 // TableInspector allows passing a custom schema inspector.
 type TableInspector interface {
 	ExistingTables() (map[string]bool, error)
-	ExistingColumns(tableName string) (map[string]bool, error)
+	// ExistingColumns returns the live column names for a table mapped to the
+	// type each column reports (dialect-reported, unnormalized).
+	ExistingColumns(tableName string) (map[string]string, error)
 }
 
 type migratorWithInspector struct {
@@ -105,10 +108,12 @@ func (m *migrator) diffWithInspector(ctx context.Context, reg schema.Registry, i
 	}
 
 	diff := &schema.SchemaDiff{}
+	targetTableSet := make(map[string]bool, len(targetAtlasSchema.Tables))
 
 	// 2. Compare Atlas target schema tables against introspected live database tables
 	for _, targetTable := range targetAtlasSchema.Tables {
 		tableName := targetTable.Name
+		targetTableSet[tableName] = true
 		if !existingTables[tableName] {
 			// New table — add to CreateTables
 			if doc, ok := docTableMap[tableName]; ok {
@@ -128,7 +133,8 @@ func (m *migrator) diffWithInspector(ctx context.Context, reg schema.Registry, i
 
 		for _, col := range targetTable.Columns {
 			targetColMap[col.Name] = col
-			if !existingCols[col.Name] {
+			existingType, exists := existingCols[col.Name]
+			if !exists {
 				// Find corresponding schema.Field from CompiledDoc
 				if doc, ok := docTableMap[tableName]; ok {
 					for _, f := range doc.Fields {
@@ -136,6 +142,27 @@ func (m *migrator) diffWithInspector(ctx context.Context, reg schema.Registry, i
 							alteration.AddColumns = append(alteration.AddColumns, f)
 							break
 						}
+					}
+				}
+				continue
+			}
+
+			// Column exists — detect type changes (REVIEW-2026-08-12 finding 9:
+			// AlterColumns was never populated, so type changes were silently
+			// ignored). Comparison is on canonicalized types so dialect-reported
+			// spelling/case differences don't false-positive.
+			if doc, ok := docTableMap[tableName]; ok {
+				for _, f := range doc.Fields {
+					if f.DBColumn == col.Name && f.Type != schema.FieldTypeChildTable {
+						if m.dialect.NormalizeColumnType(m.dialect.ColumnType(f)) != m.dialect.NormalizeColumnType(existingType) {
+							alteration.AlterColumns = append(alteration.AlterColumns, schema.ColumnAlteration{
+								FieldName:  f.Name,
+								ColumnName: f.DBColumn,
+								OldColumn:  existingType,
+								NewColumn:  m.dialect.ColumnType(f),
+							})
+						}
+						break
 					}
 				}
 			}
@@ -153,6 +180,31 @@ func (m *migrator) diffWithInspector(ctx context.Context, reg schema.Registry, i
 		}
 	}
 
+	// 3. Detect orphaned tables: tables present in the live database that the
+	// Registry no longer produces. Only tables that look Orjanda-owned (both
+	// the "id" and "deleted" BaseDocument columns) are flagged — system tables
+	// (audit_entries) and unrelated user tables are left alone. The check is
+	// deliberately conservative: child tables (no "deleted" column) are not
+	// flagged, and any false positive still requires --allow-destructive plus
+	// human review before goose applies it (TAD §14.1 step 2).
+	for existingTable := range existingTables {
+		if targetTableSet[existingTable] {
+			continue
+		}
+		cols, err := inspector.ExistingColumns(existingTable)
+		if err != nil {
+			return nil, orjerrors.Internal(fmt.Sprintf("failed to inspect orphaned table %q", existingTable), err)
+		}
+		if _, hasID := cols["id"]; !hasID {
+			continue
+		}
+		if _, hasDeleted := cols["deleted"]; !hasDeleted {
+			continue
+		}
+		diff.DropTables = append(diff.DropTables, existingTable)
+	}
+	sort.Strings(diff.DropTables)
+
 	return diff, nil
 }
 
@@ -163,7 +215,9 @@ func (m *migrator) Write(diff *schema.SchemaDiff, dir string, allowDestructive b
 		return "", orjerrors.Validation("diff must not be nil", nil)
 	}
 
-	// Gate destructive changes
+	// Gate destructive changes (TAD §14.1 step 2): dropped columns and dropped
+	// tables are computed but excluded from the written file unless
+	// --allow-destructive is set.
 	var destructiveStatements []string
 	for _, alter := range diff.AlterTables {
 		for _, col := range alter.DropColumns {
@@ -171,10 +225,13 @@ func (m *migrator) Write(diff *schema.SchemaDiff, dir string, allowDestructive b
 				fmt.Sprintf("ALTER TABLE %q DROP COLUMN %q;", alter.TableName, col))
 		}
 	}
+	for _, t := range diff.DropTables {
+		destructiveStatements = append(destructiveStatements, fmt.Sprintf("DROP TABLE %q;", t))
+	}
 
 	if len(destructiveStatements) > 0 && !allowDestructive {
 		return "", orjerrors.Validation(
-			"migration contains destructive changes (dropped columns). Re-run with --allow-destructive to include them. Skipped statements:\n"+
+			"migration contains destructive changes (dropped columns/tables). Re-run with --allow-destructive to include them. Skipped statements:\n"+
 				strings.Join(destructiveStatements, "\n"),
 			nil,
 		)
@@ -202,6 +259,13 @@ func (m *migrator) Write(diff *schema.SchemaDiff, dir string, allowDestructive b
 		}
 	}
 
+	// Drops run last, after creates/alters, and only with --allow-destructive.
+	if allowDestructive {
+		for _, t := range diff.DropTables {
+			upStmts = append(upStmts, fmt.Sprintf("DROP TABLE %q;", t))
+		}
+	}
+
 	if len(upStmts) == 0 {
 		return "", nil // Nothing to write
 	}
@@ -215,6 +279,13 @@ func (m *migrator) Write(diff *schema.SchemaDiff, dir string, allowDestructive b
 	ts := time.Now().UTC().Format("20060102150405")
 	filename := fmt.Sprintf("%s_auto_%s.sql", ts, m.dialect.Name())
 	fullPath := filepath.Join(dir, filename)
+	// Two diffs within the same second would otherwise overwrite each other
+	// (REVIEW-2026-08-12 finding 9). Disambiguate by appending a counter; the
+	// goose version prefix (leading digits) is unchanged.
+	for n := 2; fileExists(fullPath); n++ {
+		filename = fmt.Sprintf("%s_auto_%d_%s.sql", ts, n, m.dialect.Name())
+		fullPath = filepath.Join(dir, filename)
+	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", orjerrors.Internal("failed to create migrations directory", err)
@@ -226,10 +297,19 @@ func (m *migrator) Write(diff *schema.SchemaDiff, dir string, allowDestructive b
 	return filename, nil
 }
 
+// migrationMu serializes goose's package-global dialect/FS configuration and
+// the Up/Status runs that depend on it. goose.SetDialect/SetBaseFS are process
+// globals, so concurrent migrators for different dialects would corrupt each
+// other's state (REVIEW-2026-08-12 finding 9).
+var migrationMu sync.Mutex
+
 // Up applies pending migrations matching the active dialect using Goose.
 // Isolates dialect-specific migration files when multiple dialect files exist.
 // See TAD §14.1 step 4–5.
 func (m *migrator) Up(ctx context.Context, dir string) error {
+	migrationMu.Lock()
+	defer migrationMu.Unlock()
+
 	db := m.dbFn()
 	if db == nil {
 		return orjerrors.Internal("no database connection available for migration", nil)
@@ -262,6 +342,9 @@ func (m *migrator) Up(ctx context.Context, dir string) error {
 
 // Status reports migration state using Goose. See TAD §14.
 func (m *migrator) Status(ctx context.Context, dir string) ([]MigrationStatus, error) {
+	migrationMu.Lock()
+	defer migrationMu.Unlock()
+
 	db := m.dbFn()
 	if db == nil {
 		return nil, orjerrors.Internal("no database connection available for migration status", nil)
@@ -380,8 +463,8 @@ func (i *dbInspector) ExistingTables() (map[string]bool, error) {
 	return tables, rows.Err()
 }
 
-func (i *dbInspector) ExistingColumns(tableName string) (map[string]bool, error) {
-	cols := make(map[string]bool)
+func (i *dbInspector) ExistingColumns(tableName string) (map[string]string, error) {
+	cols := make(map[string]string)
 	if i.dialect.Name() == "sqlite" {
 		rows, err := i.db.QueryContext(context.Background(), fmt.Sprintf("PRAGMA table_info(%q)", tableName))
 		if err != nil {
@@ -397,26 +480,32 @@ func (i *dbInspector) ExistingColumns(tableName string) (map[string]bool, error)
 			if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
 				return nil, err
 			}
-			cols[name] = true
+			cols[name] = typ
 		}
 		return cols, rows.Err()
 	}
 
 	rows, err := i.db.QueryContext(context.Background(), `
-		SELECT column_name FROM information_schema.columns
+		SELECT column_name, data_type FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = $1`, tableName)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, typ string
+		if err := rows.Scan(&name, &typ); err != nil {
 			return nil, err
 		}
-		cols[name] = true
+		cols[name] = typ
 	}
 	return cols, rows.Err()
+}
+
+// fileExists reports whether path exists in the filesystem.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // filteredDialectFS wraps an fs.FS to expose only migration files matching the active dialect.

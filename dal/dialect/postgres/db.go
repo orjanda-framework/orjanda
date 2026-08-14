@@ -220,22 +220,23 @@ func (d *DB) ExistingTables() (map[string]bool, error) {
 	return tables, rows.Err()
 }
 
-// ExistingColumns returns the set of column names for a given table.
-func (d *DB) ExistingColumns(tableName string) (map[string]bool, error) {
+// ExistingColumns returns the live column names of a table mapped to the
+// information_schema data_type each reports (unnormalized lowercase base type).
+func (d *DB) ExistingColumns(tableName string) (map[string]string, error) {
 	rows, err := d.db.QueryContext(context.Background(), `
-		SELECT column_name FROM information_schema.columns
+		SELECT column_name, data_type FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = $1`, tableName)
 	if err != nil {
 		return nil, orjerrors.Internal("failed to list columns", err)
 	}
 	defer func() { _ = rows.Close() }()
-	cols := make(map[string]bool)
+	cols := make(map[string]string)
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, typ string
+		if err := rows.Scan(&name, &typ); err != nil {
 			return nil, orjerrors.Internal("scan column name", err)
 		}
-		cols[name] = true
+		cols[name] = typ
 	}
 	return cols, rows.Err()
 }

@@ -54,7 +54,32 @@ func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	return sb.String()
 }
 
-// AlterTable generates ALTER TABLE SQL for column additions and drops.
+// ColumnType returns the DDL type PostgreSQL uses for the given Field.
+func (d *Dialect) ColumnType(f schema.Field) string { return pgType(f) }
+
+// NormalizeColumnType canonicalizes an information_schema-reported data_type
+// (lowercase base names) and ColumnType output into a comparable token.
+func (d *Dialect) NormalizeColumnType(raw string) string {
+	s := strings.ToUpper(strings.TrimSpace(raw))
+	if i := strings.IndexByte(s, '('); i >= 0 {
+		s = s[:i]
+	}
+	switch s {
+	case "CHARACTER VARYING", "CHARACTER", "VARCHAR", "VARCHAR2":
+		return "TEXT"
+	case "TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ":
+		return "TIMESTAMPTZ"
+	case "TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP":
+		return "TIMESTAMP"
+	case "DOUBLE PRECISION", "FLOAT8":
+		return "DOUBLE PRECISION"
+	default:
+		return s
+	}
+}
+
+// AlterTable generates ALTER TABLE SQL for column additions, drops, and type
+// changes.
 func (d *Dialect) AlterTable(diff schema.TableAlteration) []string {
 	stmts := make([]string, 0)
 	for _, f := range diff.AddColumns {
@@ -69,6 +94,11 @@ func (d *Dialect) AlterTable(diff schema.TableAlteration) []string {
 	}
 	for _, col := range diff.DropColumns {
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %q DROP COLUMN IF EXISTS %q", diff.TableName, col))
+	}
+	for _, a := range diff.AlterColumns {
+		stmts = append(stmts, fmt.Sprintf(
+			"ALTER TABLE %q ALTER COLUMN %q TYPE %s",
+			diff.TableName, a.ColumnName, a.NewColumn))
 	}
 	return stmts
 }
