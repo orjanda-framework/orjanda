@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"container/list"
 	"context"
 	"sync"
 	"time"
@@ -25,86 +26,98 @@ type Store interface {
 // In-process LRU Store
 // ----------------------------------------------------------------------------
 
-// entry is a single cache entry.
-type entry struct {
+// cacheEntry is a single cache entry.
+type cacheEntry struct {
 	value   []byte
 	expires time.Time // zero means no expiry
 }
 
-// lruStore is a simple, size-bounded in-process LRU cache.
-// The implementation uses a doubly-linked list of keys inside a map;
-// for MVP the LRU eviction is approximated by a fixed-size FIFO (insertion
-// order) because full LRU requires a doubly-linked list or container/list
-// which adds complexity without measurable benefit at MVP scale.
-type lruStore struct {
-	mu       sync.RWMutex
-	maxItems int
-	items    map[string]*entry
-	order    []string // insertion order, used for FIFO eviction
+// lruEntry is a list node's payload: the key (so the list can drive map
+// eviction without re-keying) plus its entry.
+type lruEntry struct {
+	key   string
+	entry *cacheEntry
 }
 
-// NewLRUStore creates an in-process LRU cache with the given maximum entry count.
-// When the store is full, the least-recently-added entry is evicted.
+// lruStore is a size-bounded, thread-safe in-process LRU cache (TAD §9.1:
+// "MVP default: in-process LRU"). A doubly-linked list of keys
+// (container/list) plus a key→node map gives O(1) Get/Set: a hit moves its
+// node to the front, and eviction removes the back node — the least recently
+// used. TTL expiry is lazy: an expired entry is dropped on the next Get, and
+// as dead weight it is equally free as an eviction victim once it reaches the
+// back (REVIEW-2026-08-12 finding 14).
+type lruStore struct {
+	mu       sync.Mutex
+	maxItems int
+	items    map[string]*list.Element
+	order    *list.List
+}
+
+// NewLRUStore creates an in-process LRU cache with the given maximum entry
+// count. When the store is full, the least-recently-used entry is evicted.
 func NewLRUStore(maxItems int) Store {
 	if maxItems <= 0 {
 		maxItems = 1024
 	}
 	return &lruStore{
 		maxItems: maxItems,
-		items:    make(map[string]*entry, maxItems),
-		order:    make([]string, 0, maxItems),
+		items:    make(map[string]*list.Element, maxItems),
+		order:    list.New(),
 	}
 }
 
-// Get retrieves a value from the cache.
+// Get retrieves a value from the cache. A hit refreshes the entry's recency,
+// so a frequently-read key outlives a write-once key (true LRU). Get takes
+// the write lock because refreshing recency mutates the list.
 func (s *lruStore) Get(_ context.Context, key string) (val []byte, found bool, err error) {
-	s.mu.RLock()
-	e, ok := s.items[key]
-	s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	el, ok := s.items[key]
 	if !ok {
 		return nil, false, nil
 	}
-	if !e.expires.IsZero() && time.Now().After(e.expires) {
+	if s.expired(el) {
 		// Expired — delete lazily.
-		s.mu.Lock()
-		delete(s.items, key)
-		s.mu.Unlock()
+		s.removeElement(el)
 		return nil, false, nil
 	}
-	// Return a copy to prevent mutation of cached bytes.
-	cp := make([]byte, len(e.value))
-	copy(cp, e.value)
+	s.order.MoveToFront(el)
+	cp := make([]byte, len(el.Value.(*lruEntry).entry.value))
+	copy(cp, el.Value.(*lruEntry).entry.value)
 	return cp, true, nil
 }
 
-// Set stores a value in the cache.
+// Set stores a value in the cache. A new key evicts the least-recently-used
+// entry when the store is full; overwriting an existing key refreshes its
+// recency in place — both O(1), no list scan (REVIEW-2026-08-12 finding 14).
 func (s *lruStore) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Evict if at capacity and key is new.
-	if _, exists := s.items[key]; !exists && len(s.items) >= s.maxItems {
-		s.evictOldest()
-	}
-
+	cp := make([]byte, len(value))
+	copy(cp, value)
 	var expires time.Time
 	if ttl > 0 {
 		expires = time.Now().Add(ttl)
 	}
 
-	cp := make([]byte, len(value))
-	copy(cp, value)
-	s.items[key] = &entry{value: cp, expires: expires}
-
-	if _, exists := s.items[key]; !exists {
-		s.order = append(s.order, key)
-	} else {
-		// Key already tracked; update in-place (no re-ordering for simplicity).
-		// Re-add to end for LRU approximation.
-		s.removeFromOrder(key)
-		s.order = append(s.order, key)
+	if el, ok := s.items[key]; ok {
+		// Existing key: update in place and refresh recency.
+		e := el.Value.(*lruEntry).entry
+		e.value = cp
+		e.expires = expires
+		s.order.MoveToFront(el)
+		return nil
 	}
 
+	if len(s.items) >= s.maxItems {
+		s.evictLRU()
+	}
+	s.items[key] = s.order.PushFront(&lruEntry{
+		key:   key,
+		entry: &cacheEntry{value: cp, expires: expires},
+	})
 	return nil
 }
 
@@ -112,30 +125,30 @@ func (s *lruStore) Set(_ context.Context, key string, value []byte, ttl time.Dur
 func (s *lruStore) Delete(_ context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.items, key)
-	s.removeFromOrder(key)
+	if el, ok := s.items[key]; ok {
+		s.removeElement(el)
+	}
 	return nil
 }
 
-// evictOldest removes the oldest insertion-order entry. Must be called with
-// the write lock held.
-func (s *lruStore) evictOldest() {
-	for len(s.order) > 0 {
-		oldest := s.order[0]
-		s.order = s.order[1:]
-		if _, ok := s.items[oldest]; ok {
-			delete(s.items, oldest)
-			return
-		}
-	}
+// expired reports whether the node's entry has passed its TTL.
+func (s *lruStore) expired(el *list.Element) bool {
+	e := el.Value.(*lruEntry).entry
+	return !e.expires.IsZero() && time.Now().After(e.expires)
 }
 
-// removeFromOrder removes a key from the order slice.
-func (s *lruStore) removeFromOrder(key string) {
-	for i, k := range s.order {
-		if k == key {
-			s.order = append(s.order[:i], s.order[i+1:]...)
-			return
-		}
+// removeElement unlinks a node from both the list and the map.
+func (s *lruStore) removeElement(el *list.Element) {
+	delete(s.items, el.Value.(*lruEntry).key)
+	s.order.Remove(el)
+}
+
+// evictLRU removes the least-recently-used entry (the list's back node).
+// Must be called with the lock held and only when at capacity. An expired
+// entry at the back is dead weight and is evicted as freely as a live one —
+// it would miss on Get anyway.
+func (s *lruStore) evictLRU() {
+	if back := s.order.Back(); back != nil {
+		s.removeElement(back)
 	}
 }
