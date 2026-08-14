@@ -43,6 +43,26 @@ func (t *Task) DocMeta() schema.Meta {
 	}
 }
 
+// ConfidentialNote carries a field gated behind oj:"permission=role" so the
+// meta endpoint's field-level filtering and read gate can be exercised
+// (REVIEW-2026-08-12 finding 8).
+type ConfidentialNote struct {
+	schema.BaseDocument
+	Subject string
+	Payload string `oj:"permission=HR Manager"`
+}
+
+func (c *ConfidentialNote) DocMeta() schema.Meta {
+	return schema.Meta{
+		Name: "ConfidentialNote",
+		Permissions: []schema.DocPermission{
+			{Role: "System Administrator", Read: true, Write: true, Create: true},
+			{Role: "Task Manager", Read: true, Write: true, Create: true},
+			{Role: "HR Manager", Read: true, Write: true, Create: true},
+		},
+	}
+}
+
 func setupAPITestSite(t *testing.T) (http.Handler, *auth.JWTProvider, schema.Registry) {
 	t.Helper()
 
@@ -54,6 +74,9 @@ func setupAPITestSite(t *testing.T) (http.Handler, *auth.JWTProvider, schema.Reg
 	reg := schema.NewRegistry()
 	if err := reg.Register("test_app", &Task{}); err != nil {
 		t.Fatalf("failed to register Task: %v", err)
+	}
+	if err := reg.Register("test_app", &ConfidentialNote{}); err != nil {
+		t.Fatalf("failed to register ConfidentialNote: %v", err)
 	}
 	if err := reg.Compile(); err != nil {
 		t.Fatalf("failed to compile registry: %v", err)
@@ -345,6 +368,80 @@ func TestMetaAPI_PrecalculatedPermissions(t *testing.T) {
 			t.Errorf("expected viewer to have only read=true, got %+v", perms)
 		}
 	}
+}
+
+// TestMetaAPI_GatedFieldsAndReadGate asserts the meta endpoint does not leak
+// gated field metadata (REVIEW-2026-08-12 finding 8): a caller without read
+// access gets 403 instead of the full schema; a reader who lacks a gated
+// field's role does not see the field; and no field metadata ever echoes the
+// required role string.
+func TestMetaAPI_GatedFieldsAndReadGate(t *testing.T) {
+	handler, jwtProvider, _ := setupAPITestSite(t)
+	ctx := context.Background()
+
+	managerToken := generateToken(t, jwtProvider, "usr_mgr", "mgr@localhost", []string{"Task Manager"})
+	hrToken := generateToken(t, jwtProvider, "usr_hr", "hr@localhost", []string{"HR Manager"})
+	outsiderToken := generateToken(t, jwtProvider, "usr_out", "out@localhost", []string{"Unrelated Role"})
+
+	getMeta := func(token string) (int, map[string]any) {
+		t.Helper()
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/meta/ConfidentialNote", http.NoBody)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		var resp api.ResponseEnvelope
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		data, _ := resp.Data.(map[string]any)
+		return w.Code, data
+	}
+
+	assertNoRoleStrings := func(fields []any) {
+		t.Helper()
+		for _, f := range fields {
+			fm := f.(map[string]any)
+			if _, has := fm["permission"]; has {
+				t.Errorf("field %q leaks its required role string", fm["name"])
+			}
+		}
+	}
+
+	// 1. Caller without read access → 403, no schema served.
+	code, _ := getMeta(outsiderToken)
+	if code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-reader meta GET, got %d", code)
+	}
+
+	// 2. Reader lacking the gated field's role sees no gated field.
+	code, data := getMeta(managerToken)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 for reader meta GET, got %d", code)
+	}
+	fields, _ := data["fields"].([]any)
+	for _, f := range fields {
+		fm := f.(map[string]any)
+		if fm["name"] == "Payload" {
+			t.Error("gated field Payload leaked to a caller without the HR Manager role")
+		}
+	}
+	assertNoRoleStrings(fields)
+
+	// 3. A role-holder sees the gated field — still without the role string.
+	code, data = getMeta(hrToken)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 for HR meta GET, got %d", code)
+	}
+	fields, _ = data["fields"].([]any)
+	sawPayload := false
+	for _, f := range fields {
+		fm := f.(map[string]any)
+		if fm["name"] == "Payload" {
+			sawPayload = true
+		}
+	}
+	if !sawPayload {
+		t.Error("HR Manager should see the gated field Payload")
+	}
+	assertNoRoleStrings(fields)
 }
 
 // TestAPI_Performance benchmarks response times for CRUD (< 50ms) and paginated list (< 100ms).

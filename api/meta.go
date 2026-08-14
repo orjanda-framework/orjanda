@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/orjanda-framework/orjanda/api/render"
+	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
 )
@@ -45,7 +46,6 @@ type FieldMeta struct {
 	Options    []string `json:"options,omitempty"`
 	LinkTarget string   `json:"link,omitempty"`
 	Hidden     bool     `json:"hidden"`
-	Permission string   `json:"permission,omitempty"`
 	ReadOnly   bool     `json:"read_only,omitempty"`
 }
 
@@ -88,12 +88,24 @@ func (h *MetaHandler) GetDocMeta(w http.ResponseWriter, r *http.Request) {
 		canDelete = h.perm.CheckAction(r.Context(), docType, "delete") == nil
 	}
 
+	// A caller without read access gets no schema at all — not even field
+	// names/types (REVIEW-2026-08-12 finding 8: the meta endpoint previously
+	// served the full schema, gated fields and role strings included, to any
+	// authenticated identity).
+	if !canRead {
+		render.RespondError(w, orjerrors.Permission("permission denied: no read access to "+docType))
+		return
+	}
+
 	// Fields the caller may access once field-level permission (oj:"permission=role")
 	// is applied per identity (TAD §2.7, §6.1 note: metadata is pre-calculated
 	// for the requesting user so the UI can hide gated fields immediately).
+	// Filtering is by membership in the allowed set, NOT by whether the set is
+	// non-empty: an empty set means the caller may access no gated field, and
+	// the filter must still exclude them (REVIEW-2026-08-12 finding 8).
 	allowed := map[string]bool{}
 	if h.perm != nil {
-		if names, err := h.perm.AllowedFields(r.Context(), docType, "write"); err == nil {
+		if names, err := h.perm.AllowedFields(r.Context(), docType, "read"); err == nil {
 			for _, n := range names {
 				allowed[n] = true
 			}
@@ -106,7 +118,7 @@ func (h *MetaHandler) GetDocMeta(w http.ResponseWriter, r *http.Request) {
 		if f.Hidden {
 			continue
 		}
-		if len(allowed) > 0 && f.PermissionRole != "" && !allowed[f.Name] {
+		if h.perm != nil && f.PermissionRole != "" && !allowed[f.Name] {
 			continue
 		}
 		fieldsMeta = append(fieldsMeta, FieldMeta{
@@ -118,7 +130,6 @@ func (h *MetaHandler) GetDocMeta(w http.ResponseWriter, r *http.Request) {
 			Options:    f.Options,
 			LinkTarget: f.LinkTarget,
 			Hidden:     f.Hidden,
-			Permission: f.PermissionRole,
 			ReadOnly:   f.ReadOnly,
 		})
 	}

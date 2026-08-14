@@ -9,7 +9,6 @@ export interface FieldMeta {
   options?: string[];
   link?: string;
   hidden?: boolean;
-  permission?: string;
   read_only?: boolean;
 }
 
