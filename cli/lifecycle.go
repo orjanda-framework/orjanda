@@ -68,7 +68,7 @@ func runInstall(ctx context.Context, b siteBuilder, cfgFile, appName string) err
 	if !ok {
 		return errf("app %q is not installed in this site", appName)
 	}
-	if inst, ok := any(def).(app.Installable); ok {
+	if inst := def.InstallHook(); inst != nil {
 		return inst.OnInstall(ctx, site)
 	}
 	fmt.Printf("app %q declares no OnInstall hook; nothing to do (its Documents are registered at startup)\n", appName)
@@ -84,7 +84,7 @@ func runUninstall(ctx context.Context, b siteBuilder, cfgFile, appName string, d
 	if !ok {
 		return errf("app %q is not installed in this site", appName)
 	}
-	if un, ok := any(def).(app.Uninstallable); ok {
+	if un := def.UninstallHook(); un != nil {
 		return un.OnUninstall(ctx, site, dropTables)
 	}
 	fmt.Printf("app %q declares no OnUninstall hook; nothing to do\n", appName)

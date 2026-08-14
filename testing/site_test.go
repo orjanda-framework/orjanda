@@ -2,9 +2,12 @@ package testing
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/orjanda-framework/orjanda"
 	"github.com/orjanda-framework/orjanda/agent"
+	"github.com/orjanda-framework/orjanda/app"
 	"github.com/orjanda-framework/orjanda/auth"
 	"github.com/orjanda-framework/orjanda/dal"
 	"github.com/orjanda-framework/orjanda/document"
@@ -13,6 +16,44 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// hookInstalledDoc is a Document an Application's OnInstall hook registers
+// (PRD §11.3 "Install: register documents").
+type hookInstalledDoc struct {
+	schema.BaseDocument
+	Label string `oj:"required"`
+}
+
+func (d *hookInstalledDoc) DocMeta() schema.Meta { return schema.Meta{Name: "HookInstalledDoc"} }
+
+// hookRegisteringApp implements app.Installable by registering its Document
+// during OnInstall — the path the harness must support (TAD §7, PRD §11.3).
+type hookRegisteringApp struct{}
+
+func (a *hookRegisteringApp) OnInstall(ctx context.Context, site any) error {
+	s, ok := site.(*orjanda.Site)
+	if !ok {
+		return fmt.Errorf("expected *orjanda.Site, got %T", site)
+	}
+	return s.Registry.Register("hook_app", &hookInstalledDoc{})
+}
+
+// TestWithApps_RunsOnInstallHook proves WithApps resolves the Application's
+// Definition.Hooks (TAD §7) and runs OnInstall before Registry compilation, so
+// a hook-registered Document compiles and is usable — the previously-dead
+// Installable path (REVIEW-2026-08-12 finding 6).
+func TestWithApps_RunsOnInstallHook(t *testing.T) {
+	site := NewTestSite(t, WithApps(app.Definition{Name: "hook_app", Hooks: &hookRegisteringApp{}}))
+
+	_, err := site.Registry.Get("HookInstalledDoc")
+	require.NoError(t, err, "OnInstall-registered Document must be compiled")
+
+	user := site.CreateUser(t, "jane@test.com", "System Administrator")
+	ctx := site.WithUser(user)
+	rows, err := site.Document.List(ctx, "HookInstalledDoc", document.ListOpts{})
+	require.NoError(t, err)
+	assert.Empty(t, rows, "a fresh site has no HookInstalledDoc records yet")
+}
 
 // testLeaveRequest is the PRD §32.2 application Document. It lives here rather
 // than in a real Application because orjanda-app-hr-example (the reference

@@ -66,8 +66,8 @@ type appDocs struct {
 
 // WithApps installs the given Application definitions onto the site, ordered
 // by the application dependency DAG (TAD §7.1 step 2). The Application's
-// Documents must be supplied either through its app.Installable.OnInstall hook
-// (PRD §11.3 "Install: register documents") or via WithDocuments — the
+// Documents must be supplied either through its Definition.Hooks' OnInstall
+// hook (PRD §11.3 "Install: register documents") or via WithDocuments — the
 // app.Definition type itself carries no Documents (TAD §7).
 func WithApps(apps ...app.Definition) Option {
 	return func(c *testSiteConfig) {
@@ -130,7 +130,7 @@ func NewTestSite(t *testing.T, opts ...Option) *TestSite {
 				require.NoError(t, site.Registry.Register(a.Name, d))
 			}
 		}
-		if inst, ok := any(a).(app.Installable); ok {
+		if inst := a.InstallHook(); inst != nil {
 			require.NoError(t, inst.OnInstall(context.Background(), site))
 		}
 		site.Install(a)

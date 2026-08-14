@@ -14,6 +14,15 @@ type Definition struct {
 	Publisher    string
 	Modules      []Module
 	Dependencies []Dependency
+	// Hooks is the Application's lifecycle init type (TAD §7): a value or
+	// pointer to a type implementing Installable, Upgradable, and/or
+	// Uninstallable. The Definition struct itself carries no hook methods —
+	// site.Install(app.Definition)'s signature is fixed by TAD §7.1 step 1 —
+	// so the optional init type rides inside the Definition and is resolved by
+	// InstallHook/UpgradeHook/UninstallHook. A nil Hooks (or a type
+	// implementing none of the interfaces) makes Install/Upgrade/Uninstall
+	// no-ops beyond the framework's own Document/table registration.
+	Hooks any
 }
 
 type Module struct {
@@ -41,6 +50,30 @@ type Upgradable interface {
 // Uninstallable defines the hook for app uninstallation.
 type Uninstallable interface {
 	OnUninstall(ctx context.Context, site any, dropTables bool) error
+}
+
+// InstallHook returns the Application's OnInstall hook (PRD §11.3 "Install:
+// register documents, run initial migrations, load fixtures"), or nil when its
+// Hooks type does not implement Installable.
+func (d Definition) InstallHook() Installable {
+	h, _ := d.Hooks.(Installable)
+	return h
+}
+
+// UpgradeHook returns the Application's OnUpgrade hook (PRD §11.3 "Upgrade:
+// run pending migrations, execute upgrade hooks"), or nil when its Hooks type
+// does not implement Upgradable.
+func (d Definition) UpgradeHook() Upgradable {
+	h, _ := d.Hooks.(Upgradable)
+	return h
+}
+
+// UninstallHook returns the Application's OnUninstall hook (PRD §11.3
+// "Uninstall: run teardown hooks, optionally drop tables"), or nil when its
+// Hooks type does not implement Uninstallable.
+func (d Definition) UninstallHook() Uninstallable {
+	h, _ := d.Hooks.(Uninstallable)
+	return h
 }
 
 // ResolveDAG topologically sorts the application definitions based on their dependencies.
