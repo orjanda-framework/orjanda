@@ -15,10 +15,18 @@ type Handler func(ctx context.Context, doc map[string]any) error
 
 // Bus is the in-process, synchronous event dispatcher for Document lifecycle
 // events. See TAD §2.5.
+//
+// Ordering: handlers for a (docType, eventName) pair run strictly in
+// registration order and stop on the first error. The Bus has no notion of
+// Applications, so cross-app ordering on a shared pair is whatever the
+// wiring's registration order makes it. TAD §7.1 step 3's "a dependency's
+// hooks run before its dependent's" is realized by installing Applications in
+// dependency-resolved order (app.ResolveDAG) — each app's hooks are then
+// registered before its dependent's. That is a registration-order guarantee,
+// not one the Bus enforces (REVIEW-2026-08-12 finding 15).
 type Bus interface {
 	// On registers handler h for (docType, eventName).
-	// Handlers are called in registration order within the same app;
-	// cross-app ordering follows the app dependency graph (TAD §7.1 step 3).
+	// Handlers run in registration order (fail-fast, see Emit).
 	On(docType, eventName string, h Handler)
 
 	// Emit fires all registered handlers for (docType, eventName) in order.
