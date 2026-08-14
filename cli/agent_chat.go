@@ -89,6 +89,12 @@ func runAgentChat(ctx context.Context, b siteBuilder, cfgFile, user, model strin
 	id := auth.Identity{UserID: user, Roles: []string{"System Administrator"}}
 	chatCtx := auth.NewContext(ctx, id)
 
+	// One session per chat invocation: turns share the transcript, seen
+	// DocTypes, and target count so the discovery/operation split and bulk
+	// approval stay continuous (TAD §11.1/§12.1, REVIEW-2026-08-12 finding 3).
+	sess := rt.NewSession(id)
+	chatCtx = safety.WithSession(chatCtx, sess.ID)
+
 	fmt.Printf("Orjanda agent chat — impersonating %q (Ctrl-D to exit)\n", user)
 	scanner := bufio.NewScanner(os.Stdin)
 	for {

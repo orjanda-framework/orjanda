@@ -22,15 +22,19 @@ import (
 	"github.com/orjanda-framework/orjanda/event"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
+	"sync"
 )
 
 // scriptedProvider returns a fixed queue of responses and records requests.
 type scriptedProvider struct {
+	mu        sync.Mutex
 	responses []*llm.ChatResponse
 	requests  []*llm.ChatRequest
 }
 
 func (p *scriptedProvider) ChatCompletion(_ context.Context, req llm.ChatRequest) (*llm.ChatResponse, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.requests = append(p.requests, &req)
 	if len(p.responses) == 0 {
 		return &llm.ChatResponse{Content: "ok"}, nil
@@ -38,6 +42,12 @@ func (p *scriptedProvider) ChatCompletion(_ context.Context, req llm.ChatRequest
 	head := p.responses[0]
 	p.responses = p.responses[1:]
 	return head, nil
+}
+
+func (p *scriptedProvider) allRequests() []*llm.ChatRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.requests
 }
 
 func (p *scriptedProvider) StreamChatCompletion(_ context.Context, req llm.ChatRequest) (<-chan llm.ChatChunk, error) {
@@ -182,12 +192,31 @@ func TestAgentStreamWebSocket(t *testing.T) {
 		t.Errorf("tool events missing: start=%v end=%v", gotToolStart, gotToolEnd)
 	}
 
-	// A second turn on the same connection reuses the session (same identity).
+	// A second turn on the same connection must reuse the session (same
+	// identity): the turn-2 LLM request carries turn-1's full transcript.
+	// Before the finding-3 fix each message created a fresh session, so the
+	// second request held only [system, user "again"].
 	send(map[string]any{"type": "message", "text": "again"})
 	for {
 		evt := read()
 		if evt["type"] == "token" {
 			break
 		}
+	}
+
+	reqs := provider.allRequests()
+	if n := len(reqs); n != 3 {
+		t.Fatalf("recorded %d LLM requests, want 3 (2 for turn 1, 1 for turn 2)", n)
+	}
+	last := reqs[2]
+	wantMsgLen := 6 // system + turn-1 [user, assistant(toolcalls), tool, assistant] + user "again"
+	if got := len(last.Messages); got != wantMsgLen {
+		t.Fatalf("turn-2 request has %d messages, want %d: the session was not carried across turns", got, wantMsgLen)
+	}
+	if got := last.Messages[1].Content; got != "describe the Task document" {
+		t.Errorf("turn-2 request missing turn-1 user message, got %q", got)
+	}
+	if got := last.Messages[5].Content; got != "again" {
+		t.Errorf("turn-2 request missing its own user message, got %q", got)
 	}
 }

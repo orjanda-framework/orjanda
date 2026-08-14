@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/orjanda-framework/orjanda/agent/llm"
 	"github.com/orjanda-framework/orjanda/agent/planner"
@@ -37,6 +38,11 @@ type Response struct {
 	// ToolCalls is the number of tool invocations executed during the turn.
 	ToolCalls int
 }
+
+// DefaultSessionTTL is the inactivity timeout applied when Options.SessionTTL
+// is zero: an agent session untouched for this long is evicted, bounding the
+// SessionManager's memory to live conversations (REVIEW-2026-08-12 finding 3).
+const DefaultSessionTTL = 30 * time.Minute
 
 // Event types emitted to a Sink. Their JSON shapes on the WebSocket wire are
 // fixed by TAD §6.2 (token/tool_start/tool_end/approval_required).
@@ -144,6 +150,10 @@ type Options struct {
 	MaxSteps int
 	// SystemPrompt overrides the default system message.
 	SystemPrompt string
+	// SessionTTL is the inactivity timeout after which a session is evicted
+	// from the SessionManager (0 = DefaultSessionTTL; see TAD §11.1/§12.1
+	// continuity across turns and REVIEW-2026-08-12 finding 3).
+	SessionTTL time.Duration
 }
 
 // ExecuteOption configures a single Runtime.Execute turn (TAD §3.3). It is
@@ -231,6 +241,11 @@ func NewRuntime(opts Options) (*Runtime, error) {
 		system = defaultSystemPrompt
 	}
 
+	sessionTTL := opts.SessionTTL
+	if sessionTTL <= 0 {
+		sessionTTL = DefaultSessionTTL
+	}
+
 	r := &Runtime{
 		provider:  opts.Provider,
 		regTools:  regTools,
@@ -238,7 +253,7 @@ func NewRuntime(opts Options) (*Runtime, error) {
 		docEngine: opts.DocEngine,
 		wfEngine:  opts.Workflow,
 		safety:    opts.Safety,
-		sessions:  NewSessionManager(),
+		sessions:  NewSessionManagerWithTTL(sessionTTL),
 		sink:      opts.Sink,
 		approvals: opts.Approvals,
 		model:     opts.Model,

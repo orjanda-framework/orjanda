@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"sync"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 	"github.com/orjanda-framework/orjanda/agent/llm"
@@ -24,13 +25,18 @@ type Session struct {
 	seen        map[string]bool // snake_case DocType keys
 	targetCount int             // record count of the most recent list/search result
 	targetDoc   string          // snake_case DocType that targetCount belongs to
+
+	// lastAccess is touched by the SessionManager on every Get; it is the
+	// inactivity clock the TTL eviction runs on.
+	lastAccess time.Time
 }
 
 func newSession(id auth.Identity) *Session {
 	return &Session{
-		ID:     ulid.Make().String(),
-		UserID: id.UserID,
-		seen:   make(map[string]bool),
+		ID:         ulid.Make().String(),
+		UserID:     id.UserID,
+		seen:       make(map[string]bool),
+		lastAccess: time.Now(),
 	}
 }
 
@@ -87,31 +93,90 @@ func (s *Session) TargetCount(docType string) int {
 	return s.targetCount
 }
 
-// SessionManager owns live sessions keyed by id.
+// SessionManager owns live sessions keyed by id. Sessions are evicted once
+// they go untouched for the manager's TTL (a zero TTL disables expiry), which
+// bounds the memory an idle or abandoned conversation holds. Eviction runs
+// lazily on New/Get and on explicit EvictExpired sweeps.
 type SessionManager struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	sessions map[string]*Session
+	ttl      time.Duration
 }
 
-// NewSessionManager builds an empty SessionManager.
+// NewSessionManager builds a SessionManager with no TTL (sessions never
+// expire on their own).
 func NewSessionManager() *SessionManager {
-	return &SessionManager{sessions: make(map[string]*Session)}
+	return NewSessionManagerWithTTL(0)
 }
 
-// New creates and registers a session bound to an identity.
+// NewSessionManagerWithTTL builds a SessionManager that evicts sessions
+// untouched for ttl. A ttl <= 0 disables expiry.
+func NewSessionManagerWithTTL(ttl time.Duration) *SessionManager {
+	return &SessionManager{sessions: make(map[string]*Session), ttl: ttl}
+}
+
+// New creates and registers a session bound to an identity. It opportunistically
+// sweeps expired sessions so the live set stays within one TTL window of the
+// session creation rate.
 func (m *SessionManager) New(id auth.Identity) *Session {
 	s := newSession(id)
 	m.mu.Lock()
+	m.evictExpiredLocked(time.Now())
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
 	return s
 }
 
-// Get returns a registered session by id, or nil.
+// Get returns a registered session by id, or nil. A hit touches the session's
+// last-access clock; an expired session is evicted and returns nil.
 func (m *SessionManager) Get(id string) *Session {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.sessions[id]
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.sessions[id]
+	if s == nil {
+		return nil
+	}
+	now := time.Now()
+	if m.expired(s, now) {
+		delete(m.sessions, id)
+		return nil
+	}
+	s.lastAccess = now
+	return s
+}
+
+// EvictExpired removes every session whose last access predates the TTL and
+// returns how many were evicted. It is called automatically (lazily by
+// New/Get) and is exported so a caller can sweep on a timer without a lookup.
+func (m *SessionManager) EvictExpired() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.evictExpiredLocked(time.Now())
+}
+
+func (m *SessionManager) evictExpiredLocked(now time.Time) int {
+	if m.ttl <= 0 {
+		return 0
+	}
+	evicted := 0
+	for id, s := range m.sessions {
+		if m.expired(s, now) {
+			delete(m.sessions, id)
+			evicted++
+		}
+	}
+	return evicted
+}
+
+func (m *SessionManager) expired(s *Session, now time.Time) bool {
+	return m.ttl > 0 && now.Sub(s.lastAccess) > m.ttl
+}
+
+// Len returns the number of live (not yet evicted) sessions (test helper).
+func (m *SessionManager) Len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.sessions)
 }
 
 // Reset clears all sessions (test helper).

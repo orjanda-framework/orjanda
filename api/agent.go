@@ -9,6 +9,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/orjanda-framework/orjanda/agent/runtime"
+	"github.com/orjanda-framework/orjanda/agent/safety"
 	"github.com/orjanda-framework/orjanda/auth"
 )
 
@@ -61,6 +62,15 @@ func (h *AgentHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	id := auth.FromContext(r.Context())
 	idCtx := auth.NewContext(connCtx, id)
 
+	// One session per connection (TAD §11.1/§12.1 continuity): a turn may
+	// reference an earlier turn's result, so the transcript, seen DocTypes,
+	// and target count must survive across the connection's messages instead
+	// of being reset by a fresh session on every message (REVIEW-2026-08-12
+	// finding 3). The session expires via the runtime's SessionTTL once the
+	// connection goes idle.
+	sess := rt.NewSession(id)
+	sessionCtx := safety.WithSession(idCtx, sess.ID)
+
 	var turnMu sync.Mutex
 	for {
 		_, raw, err := c.Read(ctx)
@@ -78,7 +88,7 @@ func (h *AgentHandler) Stream(w http.ResponseWriter, r *http.Request) {
 				// Serialize turns so a slow run can't interleave with the next.
 				turnMu.Lock()
 				defer turnMu.Unlock()
-				if _, err := rt.Execute(idCtx, text); err != nil {
+				if _, err := rt.Execute(sessionCtx, text); err != nil {
 					sink.Send(runtime.Event{Type: runtime.EventToolEnd, Content: "error: " + err.Error()})
 				}
 			}(msg.Text)
