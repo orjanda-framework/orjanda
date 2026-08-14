@@ -59,7 +59,7 @@ func newAdminSite(t *testing.T) (*orjanda.Site, string) {
 	db.RegisterDocs(site.Registry.List())
 	for _, doc := range site.Registry.List() {
 		for _, child := range doc.ChildTables {
-			db.RegisterDoc(child.TypeName, child.DocType+"s")
+			db.RegisterDoc(child.TypeName, child.TableName)
 		}
 	}
 	if err := db.CreateTables(site.Registry.List()); err != nil {

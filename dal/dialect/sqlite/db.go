@@ -63,8 +63,9 @@ func (d *DB) RegisterDocs(docs []*schema.CompiledDoc) {
 		d.tableNames[doc.Name] = doc.TableName
 		d.compiledDocs[doc.Name] = doc
 		for _, child := range doc.ChildTables {
-			// Child DocType is singular snake (TAD §2.1); table is pluralized.
-			d.tableNames[child.TypeName] = child.DocType + "s"
+			// Child DocType is singular snake (TAD §2.1); TableName is the
+			// pluralized snake_case name computed at compile time (TAD §1.4).
+			d.tableNames[child.TypeName] = child.TableName
 			// Child tables carry no soft-delete base column; their queries must
 			// not emit a "deleted" predicate (TAD §2.3 child-table semantics).
 			d.childDocTypes[child.TypeName] = true
@@ -478,7 +479,7 @@ func (d *DB) CreateTables(docs []*schema.CompiledDoc) error {
 		}
 		for _, child := range doc.ChildTables {
 			childDoc := schema.CompiledDoc{
-				TableName: child.DocType + "s",
+				TableName: child.TableName,
 				Fields:    child.Fields,
 			}
 			childDDL := d.dialect.CreateTable(childDoc)

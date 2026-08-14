@@ -37,7 +37,7 @@ func buildDB(t *testing.T, reg schema.Registry) *sqlite.DB {
 	// Also register child-table name mappings so Insert("UserRole",...) resolves.
 	for _, doc := range docs {
 		for _, child := range doc.ChildTables {
-			db.RegisterDoc(child.TypeName, child.DocType+"s")
+			db.RegisterDoc(child.TypeName, child.TableName)
 		}
 	}
 

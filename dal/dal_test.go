@@ -471,6 +471,26 @@ func TestSQLiteDB_ChildTableQuery_NoSoftDeleteFilter(t *testing.T) {
 	assert.Equal(t, "first note", rows[0]["note"])
 }
 
+// TestChildTableName_IsSnakeCasePlural verifies the child-table naming rule is
+// derived once at compile time and rendered identically everywhere (TAD §1.4):
+// the live table for child struct ChildRow must be "child_rows" — never the Go
+// type name or a camelCase variant (REVIEW-2026-08-12 finding 11).
+func TestChildTableName_IsSnakeCasePlural(t *testing.T) {
+	reg := childRegistry(t)
+	db := newTestSQLiteDB(t, reg)
+
+	tables, err := db.ExistingTables()
+	require.NoError(t, err)
+
+	require.Contains(t, tables, "child_parents", "parent table should be snake_case plural")
+	require.Contains(t, tables, "child_rows", "child table should be snake_case plural")
+	require.NotContains(t, tables, "ChildRow", "child table must not use the Go type name")
+
+	child := reg.List()[0].ChildTables[0]
+	assert.Equal(t, "child_rows", child.TableName, "compiled child TableName")
+	assert.Equal(t, "child_row", child.DocType, "child DocType stays singular snake")
+}
+
 // ─────────────────────────────────────────────
 // Additional: Transaction rollback on error
 // ─────────────────────────────────────────────

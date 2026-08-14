@@ -195,6 +195,9 @@ func TestRegistry_Success(t *testing.T) {
 	if child.FieldName != "Skills" || child.TypeName != "DummyChild" || child.DocType != "dummy_child" {
 		t.Errorf("invalid child table metadata: %+v", child)
 	}
+	if child.TableName != "dummy_childs" {
+		t.Errorf("child TableName = %q, want %q (TAD §1.4 plural snake_case, REVIEW-2026-08-12 finding 11)", child.TableName, "dummy_childs")
+	}
 
 	// Check base child fields prepended
 	childFieldMap := make(map[string]schema.Field)

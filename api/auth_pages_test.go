@@ -45,7 +45,7 @@ func setupAuthTestSite(t *testing.T) (http.Handler, string) {
 	db.RegisterDocs(reg.List())
 	for _, doc := range reg.List() {
 		for _, child := range doc.ChildTables {
-			db.RegisterDoc(child.TypeName, child.DocType+"s")
+			db.RegisterDoc(child.TypeName, child.TableName)
 		}
 	}
 	if err := db.CreateTables(reg.List()); err != nil {

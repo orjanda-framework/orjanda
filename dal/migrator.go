@@ -95,7 +95,7 @@ func (m *migrator) diffWithInspector(ctx context.Context, reg schema.Registry, i
 
 		// Include child tables in target schema
 		for _, child := range doc.ChildTables {
-			childTableName := child.DocType + "s"
+			childTableName := child.TableName
 			if _, exists := docTableMap[childTableName]; !exists {
 				childDoc := &schema.CompiledDoc{
 					TableName: childTableName,
@@ -243,7 +243,7 @@ func (m *migrator) Write(diff *schema.SchemaDiff, dir string, allowDestructive b
 		upStmts = append(upStmts, m.dialect.CreateTable(doc)+";")
 		for _, child := range doc.ChildTables {
 			childDoc := schema.CompiledDoc{
-				TableName: child.DocType + "s",
+				TableName: child.TableName,
 				Fields:    child.Fields,
 			}
 			upStmts = append(upStmts, m.dialect.CreateTable(childDoc)+";")

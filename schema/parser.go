@@ -74,6 +74,7 @@ func parseFieldsInternal(t reflect.Type, visited []reflect.Type) ([]Field, []Com
 				FieldName: f.Name,
 				TypeName:  typeName,
 				DocType:   docType,
+				TableName: pluralizeTableName(typeName),
 				Fields:    childFields,
 			})
 			continue
@@ -220,6 +221,14 @@ func camelToSnake(s string) string {
 		}
 	}
 	return string(res)
+}
+
+// pluralizeTableName is the single derivation of a table name from a Document
+// or child-struct name: snake_case + plural "s" (TAD §1.4). Main tables
+// (registry.go) and child tables (parser.go) must both go through here so the
+// naming rule cannot drift (REVIEW-2026-08-12 finding 11).
+func pluralizeTableName(name string) string {
+	return camelToSnake(name) + "s"
 }
 
 // humanizeLabel turns a Go field name into a human-readable label, e.g.

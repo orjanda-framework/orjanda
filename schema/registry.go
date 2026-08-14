@@ -125,7 +125,7 @@ func (r *registry) Compile() error {
 			Name:        meta.Name,
 			App:         rd.app,
 			Module:      meta.Module,
-			TableName:   camelToSnake(meta.Name) + "s", // Pluralize table name as per TAD §1.4
+			TableName:   pluralizeTableName(meta.Name), // TAD §1.4 — shared with child tables (REVIEW-2026-08-12 finding 11)
 			Searchable:  meta.Searchable,
 			Submittable: meta.Submittable,
 			Icon:        meta.Icon,

@@ -224,6 +224,10 @@ type CompiledChild struct {
 	// DocType is the canonical DocType name for the child table
 	// (snake_case of TypeName by default, or set explicitly via DocMeta).
 	DocType string
+	// TableName is the pluralized snake_case table name, derived from TypeName
+	// by the exact same rule as main tables (camelToSnake + "s", TAD §1.4).
+	// Computed once at compile time so no consumer can derive it differently.
+	TableName string
 	// Fields is the compiled field set of the child struct.
 	Fields []Field
 }
