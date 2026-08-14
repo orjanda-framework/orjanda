@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/orjanda-framework/orjanda/agent/llm"
@@ -159,6 +163,85 @@ func toolCallResponseN(calls ...llm.ToolCall) *llm.ChatResponse {
 
 func textResponse(text string) *llm.ChatResponse {
 	return &llm.ChatResponse{Content: text, FinishReason: "stop"}
+}
+
+// --- OpenAI wire helpers (real-provider regression tests) --------------------
+
+// wireMsg is the minimal OpenAI chat-completion message shape used to validate
+// request bodies captured by the stub server.
+type wireMsg struct {
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCallID string     `json:"tool_call_id"`
+	ToolCalls  []wireCall `json:"tool_calls"`
+}
+
+type wireCall struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+// wireText renders an OpenAI chat-completion response whose assistant message
+// carries only text content.
+func wireText(content string) string {
+	payload, _ := json.Marshal(map[string]any{
+		"id": "chatcmpl_test", "object": "chat.completion", "model": "test-model",
+		"choices": []map[string]any{{
+			"index":         0,
+			"message":       map[string]any{"role": "assistant", "content": content},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+	})
+	return string(payload)
+}
+
+// wireToolCalls renders an OpenAI chat-completion response whose assistant
+// message declares the given tool calls.
+func wireToolCalls(calls ...llm.ToolCall) string {
+	tcs := make([]map[string]any, 0, len(calls))
+	for _, c := range calls {
+		tcs = append(tcs, map[string]any{
+			"id": c.ID, "type": "function",
+			"function": map[string]any{"name": c.Name, "arguments": c.Arguments},
+		})
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"id": "chatcmpl_test", "object": "chat.completion", "model": "test-model",
+		"choices": []map[string]any{{
+			"index":         0,
+			"message":       map[string]any{"role": "assistant", "content": "", "tool_calls": tcs},
+			"finish_reason": "tool_calls",
+		}},
+		"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+	})
+	return string(payload)
+}
+
+// assertWellFormedTranscript verifies the wire contract real providers enforce
+// (REVIEW-2026-08-12 finding 4): every tool message references a tool_call_id
+// declared by a preceding assistant tool_calls message, and no assistant tool
+// call has an empty id.
+func assertWellFormedTranscript(t *testing.T, req int, msgs []wireMsg) {
+	t.Helper()
+	declared := map[string]bool{}
+	for _, m := range msgs {
+		switch m.Role {
+		case "assistant":
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "" {
+					t.Errorf("request %d: assistant tool_call with empty id", req)
+				}
+				declared[tc.ID] = true
+			}
+		case "tool":
+			if m.ToolCallID == "" {
+				t.Errorf("request %d: tool message with empty tool_call_id", req)
+			} else if !declared[m.ToolCallID] {
+				t.Errorf("request %d: tool message references undeclared tool_call_id %q", req, m.ToolCallID)
+			}
+		}
+	}
 }
 
 // --- Test harness ------------------------------------------------------------
@@ -394,6 +477,111 @@ func TestExecutePlanMode(t *testing.T) {
 	if !found {
 		t.Errorf("get_employee result %q does not reference created id %q", req.Messages, createdID)
 	}
+}
+
+// TestExecutePlanModeWireFormat is the regression test for
+// REVIEW-2026-08-12 finding 4: plan-mode transcripts were malformed for real
+// providers (plan dropped from the transcript, tool messages with empty
+// ToolCallID), which OpenAI/Anthropic reject with HTTP 400. The plan turn is
+// driven end-to-end through a real OpenAIProvider against a stub server, and
+// every captured request body is verified well-formed: each tool message
+// carries a tool_call_id declared by a preceding assistant tool_calls message,
+// the plan is recorded as an assistant content message, and the summary call
+// runs against that transcript.
+func TestExecutePlanModeWireFormat(t *testing.T) {
+	s := newTestSite(t)
+
+	var (
+		mu     sync.Mutex
+		bodies [][]byte
+		reqNum atomic.Int64
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		mu.Lock()
+		bodies = append(bodies, body)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		switch reqNum.Add(1) {
+		case 1:
+			_, _ = w.Write([]byte(wireToolCalls(llm.ToolCall{ID: "call-1", Name: "describe_document", Arguments: `{"doc_type":"Employee"}`})))
+		case 2:
+			_, _ = w.Write([]byte(wireToolCalls(
+				llm.ToolCall{ID: "call-2", Name: "create_employee", Arguments: `{"first_name":"Grace","last_name":"Hopper","email":"grace@example.com"}`},
+				llm.ToolCall{ID: "call-3", Name: "get_employee", Arguments: `{"id":"ref:0.id"}`},
+			)))
+		case 3:
+			_, _ = w.Write([]byte(wireText(`{"steps":[
+				{"operation":"create_employee","args":{"first_name":"Grace","last_name":"Hopper","email":"grace@example.com"}},
+				{"operation":"get_employee","args":{"id":"ref:0.id"}}
+			]}`)))
+		case 4:
+			_, _ = w.Write([]byte(wireText("Created Grace Hopper and fetched her record.")))
+		default:
+			t.Errorf("unexpected extra request to stub server")
+			_, _ = w.Write([]byte(wireText("ok")))
+		}
+	}))
+	defer srv.Close()
+
+	provider := llm.NewOpenAIProvider(llm.ProviderOptions{Model: "test-model", BaseURL: srv.URL})
+	rt := s.newRuntime(t, nil)
+
+	resp, err := rt.Execute(hrCtx(), "create Grace Hopper then fetch her record", runtime.WithProvider(provider))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if resp.ToolCalls != 2 {
+		t.Errorf("ToolCalls = %d, want 2", resp.ToolCalls)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != 4 {
+		t.Fatalf("requests = %d, want 4 (describe, dependency, plan, summary)", len(bodies))
+	}
+	for i, body := range bodies {
+		var req struct {
+			Messages       []wireMsg        `json:"messages"`
+			Tools          []map[string]any `json:"tools"`
+			ResponseFormat map[string]any   `json:"response_format"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("request %d not valid JSON: %v\n%s", i, err, body)
+		}
+		assertWellFormedTranscript(t, i, req.Messages)
+		if i == 2 && req.ResponseFormat == nil {
+			t.Error("plan request missing response_format (TAD §11.3)")
+		}
+	}
+
+	// The summary call must run against a well-formed transcript that records
+	// the plan as an assistant content message.
+	var last wireMsg
+	for _, m := range mustDecode(t, bodies[3], struct {
+		Messages []wireMsg `json:"messages"`
+	}{}).Messages {
+		if m.Role == "assistant" && strings.Contains(m.Content, `"operation":"create_employee"`) {
+			last = m
+		}
+	}
+	if last.Content == "" {
+		t.Error("summary request does not carry the plan as an assistant content message")
+	}
+}
+
+// mustDecode unmarshals a request body into the given struct value (used for
+// one-off shape checks inside wire-format tests).
+func mustDecode[T any](t *testing.T, body []byte, into T) T {
+	t.Helper()
+	if err := json.Unmarshal(body, &into); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, body)
+	}
+	return into
 }
 
 func TestExecutePlanRejectedBeforeExecution(t *testing.T) {

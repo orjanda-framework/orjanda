@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/orjanda-framework/orjanda/agent/llm"
 	"github.com/orjanda-framework/orjanda/agent/planner"
 	"github.com/orjanda-framework/orjanda/agent/safety"
@@ -59,7 +60,16 @@ func (r *Runtime) requestPlanWith(ctx context.Context, sess *Session, tools []ll
 	if err != nil {
 		return nil, err
 	}
-	return planner.Unmarshal(resp.Content)
+	plan, err := planner.Unmarshal(resp.Content)
+	if err != nil {
+		return nil, err
+	}
+	// Record the plan as an assistant content message so the transcript stays
+	// well-formed for real providers (REVIEW-2026-08-12 finding 4). The plan
+	// is produced under a constrained ResponseFormat (TAD §11.3), so it is
+	// plain content — not a tool call.
+	sess.addMessage(llm.Message{Role: "assistant", Content: resp.Content})
+	return plan, nil
 }
 
 // runValidatedPlan executes a validated plan: plan-level human confirmation
@@ -78,17 +88,19 @@ func (r *Runtime) runValidatedPlan(ctx context.Context, sess *Session, userMessa
 	results := make(map[int]string)
 	steps := 0
 	for i, step := range plan.Steps {
+		callID := planCallID()
+
 		args, err := r.resolveRefs(step.Args, results)
 		if err != nil {
-			sess.addMessage(llm.Message{Role: "tool", Name: step.Operation, Content: "error: " + err.Error()})
+			appendPlanStep(sess, callID, step.Operation, step.Args, "error: "+err.Error())
 			continue
 		}
 		if vErr := planner.ValidateArgs(step.Operation, args, schemas[step.Operation]); vErr != nil {
-			sess.addMessage(llm.Message{Role: "tool", Name: step.Operation, Content: "error: " + vErr.Error()})
+			appendPlanStep(sess, callID, step.Operation, args, "error: "+vErr.Error())
 			continue
 		}
 		obs := r.executeTool(ctx, sess, step.Operation, args, userMessage, true, approvals)
-		sess.addMessage(llm.Message{Role: "tool", Name: step.Operation, Content: obs})
+		appendPlanStep(sess, callID, step.Operation, args, obs)
 		results[i] = obs
 		steps++
 	}
@@ -164,6 +176,36 @@ func planSummary(plan *planner.Plan) map[string]any {
 		steps = append(steps, map[string]any{"operation": s.Operation, "depends_on": s.DependsOn})
 	}
 	return map[string]any{"step_count": len(plan.Steps), "steps": steps}
+}
+
+// planCallID returns a fresh, well-formed tool-call id for a plan step's
+// assistant tool_calls entry. Real providers require non-empty, unique ids
+// (OpenAI convention "call_...") that the matching tool message echoes back.
+func planCallID() string {
+	return "call_" + ulid.Make().String()
+}
+
+// appendPlanStep records one executed plan step as a well-formed tool-call
+// pair: the assistant message declaring the invocation (with a generated id)
+// is appended before the tool message that references it. Real providers
+// reject a tool message that has no matching assistant tool_calls entry
+// (HTTP 400) — the malformed transcript that broke plan turns before
+// REVIEW-2026-08-12 finding 4.
+func appendPlanStep(sess *Session, callID, toolName string, args map[string]any, obs string) {
+	sess.addMessage(llm.Message{
+		Role:      "assistant",
+		ToolCalls: []llm.ToolCall{{ID: callID, Name: toolName, Arguments: marshalArgs(args)}},
+	})
+	sess.addMessage(llm.Message{Role: "tool", ToolCallID: callID, Name: toolName, Content: obs})
+}
+
+// marshalArgs renders tool-call arguments as JSON for the assistant message.
+func marshalArgs(args map[string]any) string {
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
 }
 
 // resolveRefs substitutes every "ref:<i>[.field]" argument from the results of
