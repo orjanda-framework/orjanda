@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/orjanda-framework/orjanda/cache"
 	"github.com/orjanda-framework/orjanda/dal/dialect/sqlite"
 	"github.com/orjanda-framework/orjanda/document"
+	orjerrors "github.com/orjanda-framework/orjanda/errors"
 	"github.com/orjanda-framework/orjanda/event"
 	"github.com/orjanda-framework/orjanda/perm"
 	"github.com/orjanda-framework/orjanda/schema"
@@ -480,4 +482,103 @@ func TestAPI_Performance(t *testing.T) {
 	if elapsed > 100*time.Millisecond {
 		t.Errorf("list query took %s, exceeding 100ms target", elapsed)
 	}
+}
+
+// TestREST_List_OrderByValidation verifies the public order_by query parameter
+// is allowlisted (REVIEW-2026-08-12 finding 10): valid field/column + ASC/DESC
+// succeed, unknown fields / directions / injected tokens return 400.
+func TestREST_List_OrderByValidation(t *testing.T) {
+	handler, jwtProvider, _ := setupAPITestSite(t)
+	ctx := context.Background()
+	adminToken := generateToken(t, jwtProvider, "usr_admin", "admin@localhost", []string{"System Administrator"})
+
+	create := func(title string) {
+		t.Helper()
+		body := map[string]any{"title": title, "status": "Open"}
+		jsonBody, _ := json.Marshal(body)
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/document/Task", bytes.NewReader(jsonBody))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create %q: expected 201, got %d: %s", title, w.Code, w.Body.String())
+		}
+	}
+	create("beta")
+	create("alpha")
+	create("gamma")
+
+	list := func(orderBy string) (*httptest.ResponseRecorder, api.ResponseEnvelope) {
+		t.Helper()
+		listURL := "/api/v1/document/Task"
+		if orderBy != "" {
+			listURL += "?order_by=" + url.QueryEscape(orderBy)
+		}
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, listURL, http.NoBody)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		var resp api.ResponseEnvelope
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		return w, resp
+	}
+
+	t.Run("valid field asc", func(t *testing.T) {
+		w, resp := list("title")
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		rows := resp.Data.([]any)
+		if len(rows) != 3 {
+			t.Fatalf("expected 3 rows, got %d", len(rows))
+		}
+		first := rows[0].(map[string]any)
+		if first["title"] != "alpha" {
+			t.Fatalf("expected first title alpha, got %v", first["title"])
+		}
+	})
+
+	t.Run("valid field desc", func(t *testing.T) {
+		w, resp := list("title DESC")
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		rows := resp.Data.([]any)
+		first := rows[0].(map[string]any)
+		if first["title"] != "gamma" {
+			t.Fatalf("expected first title gamma, got %v", first["title"])
+		}
+	})
+
+	t.Run("valid system column", func(t *testing.T) {
+		w, _ := list("created_at")
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for created_at order_by, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("unknown field rejected", func(t *testing.T) {
+		w, resp := list("nosuchfield")
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+		if resp.Error == nil || resp.Error.Code != string(orjerrors.CodeValidation) {
+			t.Fatalf("expected VALIDATION_ERROR, got %+v", resp.Error)
+		}
+	})
+
+	t.Run("unknown direction rejected", func(t *testing.T) {
+		w, _ := list("title SENSITIVE")
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("injection rejected", func(t *testing.T) {
+		w, _ := list("title DESC; DROP TABLE tasks; --")
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
 }

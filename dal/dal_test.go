@@ -575,6 +575,37 @@ func TestSQLiteDialect_SelectSQL_IncludeDeleted(t *testing.T) {
 	assert.NotContains(t, sql, `"deleted"`)
 }
 
+// TestDialect_SelectSQL_OrderByDirectionHardening verifies defense-in-depth for
+// REVIEW-2026-08-12 finding 10: only ASC/DESC direction tokens are ever
+// rendered, so an unvalidated direction cannot reach the SQL string even if a
+// caller bypasses the engine allowlist.
+func TestDialect_SelectSQL_OrderByDirectionHardening(t *testing.T) {
+	sqliteSQL, _ := sqlite.New().SelectSQL(dal.Select{TableName: "employees", OrderBy: "name DESC"})
+	assert.Contains(t, sqliteSQL, `ORDER BY "name" DESC`)
+
+	pgSQL, _ := postgres.New().SelectSQL(dal.Select{TableName: "employees", OrderBy: "name DESC"})
+	assert.Contains(t, pgSQL, `ORDER BY "name" DESC`)
+
+	for _, orderBy := range []string{
+		`name DESC; DROP TABLE employees; --`,
+		`name; DROP TABLE employees; --`,
+		`name DESC, salary`,
+		`name INJECTED()`,
+	} {
+		badSQL, _ := sqlite.New().SelectSQL(dal.Select{TableName: "employees", OrderBy: orderBy})
+		assert.NotContains(t, badSQL, "DROP TABLE", "sqlite OrderBy=%q", orderBy)
+		assert.NotContains(t, badSQL, "salary", "sqlite OrderBy=%q", orderBy)
+		assert.NotContains(t, badSQL, "INJECTED", "sqlite OrderBy=%q", orderBy)
+		assert.Contains(t, badSQL, " ORDER BY ", "sqlite OrderBy=%q", orderBy)
+
+		badPG, _ := postgres.New().SelectSQL(dal.Select{TableName: "employees", OrderBy: orderBy})
+		assert.NotContains(t, badPG, "DROP TABLE", "postgres OrderBy=%q", orderBy)
+		assert.NotContains(t, badPG, "salary", "postgres OrderBy=%q", orderBy)
+		assert.NotContains(t, badPG, "INJECTED", "postgres OrderBy=%q", orderBy)
+		assert.Contains(t, badPG, " ORDER BY ", "postgres OrderBy=%q", orderBy)
+	}
+}
+
 func TestMigratorWrite_EmptyDiff_ReturnsEmpty(t *testing.T) {
 	db, err := sqlite.Open(":memory:")
 	require.NoError(t, err)

@@ -419,6 +419,13 @@ func (e *Engine) List(ctx context.Context, docType string, opts ListOpts) ([]map
 			orderBy += " DESC"
 		}
 	}
+	if orderBy != "" {
+		resolved, err := validateOrderBy(compiled, orderBy)
+		if err != nil {
+			return nil, err
+		}
+		orderBy = resolved
+	}
 
 	rows, err := e.db.Query(ctx, dal.Select{
 		DocType:        docType,
@@ -446,6 +453,41 @@ func (e *Engine) List(ctx context.Context, docType string, opts ListOpts) ([]map
 	}
 
 	return rows, nil
+}
+
+// validateOrderBy allowlists an order_by clause against a compiled Document's
+// schema (REVIEW-2026-08-12 finding 10): the sort field must be a known field
+// or column that is not hidden, and the optional direction must be ASC or DESC.
+// It returns the canonical "<db_column> [ASC|DESC]" form. Every public path
+// (REST handler, agent list tool) reaches List, so this single chokepoint
+// closes the raw-token injection surface before it ever reaches a Dialect.
+func validateOrderBy(compiled *schema.CompiledDoc, orderBy string) (string, error) {
+	parts := strings.Fields(orderBy)
+	if len(parts) == 0 {
+		return "", nil
+	}
+	if len(parts) > 2 {
+		return "", orjerrors.Validation(fmt.Sprintf("invalid order_by %q: expected \"<field> [ASC|DESC]\"", orderBy), nil)
+	}
+
+	dir := ""
+	if len(parts) == 2 {
+		d := strings.ToUpper(parts[1])
+		if d != "ASC" && d != "DESC" {
+			return "", orjerrors.Validation(fmt.Sprintf("invalid order_by direction %q: must be ASC or DESC", parts[1]), nil)
+		}
+		dir = " " + d
+	}
+
+	for _, f := range compiled.Fields {
+		if f.Name == parts[0] || f.DBColumn == parts[0] {
+			if f.Hidden && !f.System {
+				return "", orjerrors.Validation(fmt.Sprintf("order_by field %q is hidden", parts[0]), nil)
+			}
+			return f.DBColumn + dir, nil
+		}
+	}
+	return "", orjerrors.Validation(fmt.Sprintf("unknown order_by field %q", parts[0]), nil)
 }
 
 // ----------------------------------------------------------------------------

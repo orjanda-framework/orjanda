@@ -192,6 +192,10 @@ type Field struct {
 	PermissionRole string
 	// Hidden excludes the field from the default UI and agent BaseSchema.
 	Hidden bool
+	// System marks a framework-managed field (id, owner, created_at, ...).
+	// Hidden system fields stay sortable; hidden user-data fields do not
+	// (REVIEW-2026-08-12 finding 10: order_by must not reveal hidden data).
+	System bool
 	// ReadOnly prevents modification after initial creation.
 	ReadOnly bool
 	// Computed marks a derived value that is not stored.

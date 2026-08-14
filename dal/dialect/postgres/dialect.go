@@ -26,6 +26,15 @@ func (d *Dialect) DriverName() string { return "pgx" }
 // Placeholder returns $N for PostgreSQL positional parameters (1-indexed).
 func (d *Dialect) Placeholder(n int) string { return fmt.Sprintf("$%d", n) }
 
+// isSortDirection reports whether tok is an ORDER BY direction token. Only
+// ASC/DESC (case-insensitive) is ever emitted; anything else is dropped so an
+// unvalidated direction can never reach the rendered SQL (REVIEW-2026-08-12
+// finding 10 — the engine allowlists, this is defense in depth).
+func isSortDirection(tok string) bool {
+	t := strings.ToUpper(strings.TrimSpace(tok))
+	return t == "ASC" || t == "DESC"
+}
+
 // CreateTable generates CREATE TABLE SQL for the given CompiledDoc.
 func (d *Dialect) CreateTable(doc schema.CompiledDoc) string {
 	var sb strings.Builder
@@ -155,8 +164,8 @@ func (d *Dialect) SelectSQL(q dal.Select) (string, []any) {
 		parts := strings.Split(q.OrderBy, " ")
 		col := parts[0]
 		dir := ""
-		if len(parts) > 1 {
-			dir = " " + parts[1]
+		if len(parts) > 1 && isSortDirection(parts[1]) {
+			dir = " " + strings.ToUpper(parts[1])
 		}
 		fmt.Fprintf(&sb, " ORDER BY %q%s", col, dir)
 	}

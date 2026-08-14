@@ -256,21 +256,21 @@ func (r *registry) Relationships(docType string) []Relationship {
 // because it is the user-definable title field.
 func getBaseDocumentFields() []Field {
 	return []Field{
-		{Name: "ID", DBColumn: "id", Type: FieldTypeString, Required: true, Label: "ID", Hidden: true},
+		{Name: "ID", DBColumn: "id", Type: FieldTypeString, Required: true, Label: "ID", Hidden: true, System: true},
 		{Name: "Name", DBColumn: "name", Type: FieldTypeString, Label: "Name"},
-		{Name: "Owner", DBColumn: "owner", Type: FieldTypeString, Label: "Owner", Hidden: true},
-		{Name: "CreatedAt", DBColumn: "created_at", Type: FieldTypeDateTime, Label: "Created At", Hidden: true},
-		{Name: "UpdatedAt", DBColumn: "updated_at", Type: FieldTypeDateTime, Label: "Updated At", Hidden: true},
-		{Name: "ModifiedBy", DBColumn: "modified_by", Type: FieldTypeString, Label: "Modified By", Hidden: true},
-		{Name: "DocStatus", DBColumn: "doc_status", Type: FieldTypeInt, Label: "Doc Status", Hidden: true},
-		{Name: "Deleted", DBColumn: "deleted", Type: FieldTypeBool, Label: "Deleted", Hidden: true},
+		{Name: "Owner", DBColumn: "owner", Type: FieldTypeString, Label: "Owner", Hidden: true, System: true},
+		{Name: "CreatedAt", DBColumn: "created_at", Type: FieldTypeDateTime, Label: "Created At", Hidden: true, System: true},
+		{Name: "UpdatedAt", DBColumn: "updated_at", Type: FieldTypeDateTime, Label: "Updated At", Hidden: true, System: true},
+		{Name: "ModifiedBy", DBColumn: "modified_by", Type: FieldTypeString, Label: "Modified By", Hidden: true, System: true},
+		{Name: "DocStatus", DBColumn: "doc_status", Type: FieldTypeInt, Label: "Doc Status", Hidden: true, System: true},
+		{Name: "Deleted", DBColumn: "deleted", Type: FieldTypeBool, Label: "Deleted", Hidden: true, System: true},
 	}
 }
 
 func getBaseChildFields() []Field {
 	return []Field{
-		{Name: "ID", DBColumn: "id", Type: FieldTypeString, Required: true, Label: "ID"},
-		{Name: "ParentID", DBColumn: "parent_id", Type: FieldTypeString, Required: true, Label: "Parent ID"},
-		{Name: "Idx", DBColumn: "idx", Type: FieldTypeInt, Required: true, Label: "Idx"},
+		{Name: "ID", DBColumn: "id", Type: FieldTypeString, Required: true, Label: "ID", System: true},
+		{Name: "ParentID", DBColumn: "parent_id", Type: FieldTypeString, Required: true, Label: "Parent ID", System: true},
+		{Name: "Idx", DBColumn: "idx", Type: FieldTypeInt, Required: true, Label: "Idx", System: true},
 	}
 }
