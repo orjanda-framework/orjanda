@@ -1,0 +1,125 @@
+name: Bug report
+description: Report a bug in the Orjanda framework
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report. Please search
+        [existing issues](https://github.com/orjanda-framework/orjanda/issues?q=is%3Aissue)
+        before filing — your bug may already be reported.
+
+        **Do not include secrets or real credentials anywhere in this report.**
+        If you found a security vulnerability, do **not** open an issue —
+        report it privately via
+        [GitHub Security Advisories](https://github.com/orjanda-framework/orjanda/security/advisories/new)
+        (see [SECURITY.md](../../../SECURITY.md)).
+  - type: input
+    id: version
+    attributes:
+      label: Orjanda version
+      description: |
+        The version from `go.mod`, or the commit SHA you are running
+        (e.g. `github.com/orjanda-framework/orjanda v0.1.0` or `bcb9fd1`).
+        No release tags exist yet, so a commit SHA is preferred.
+      placeholder: v0.1.0 / bcb9fd1
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: Output of `go version`.
+      placeholder: go1.26.5 linux/amd64
+    validations:
+      required: true
+  - type: dropdown
+    id: dialect
+    attributes:
+      label: Database dialect
+      description: Which database were you using?
+      options:
+        - SQLite
+        - PostgreSQL
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: Where did the bug occur?
+      options:
+        - Local development (`orjanda serve`)
+        - CI
+        - Docker/container
+        - Other (describe in reproduction steps)
+    validations:
+      required: true
+  - type: textarea
+    id: affected-subsystem
+    attributes:
+      label: Affected subsystem
+      description: Which part of the framework is affected? Pick the closest match.
+      value: |
+        - [ ] Document Engine / schema
+        - [ ] Permissions / audit
+        - [ ] Agent runtime / tools
+        - [ ] API (REST / RPC / WebSocket)
+        - [ ] Admin UI
+        - [ ] CLI / migrations
+        - [ ] Config / build
+        - [ ] Testing harness
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, complete reproduction steps (include a minimal `Document` and config if relevant).
+      placeholder: |
+        1. `orjanda init myapp && cd myapp`
+        2. Define `LeaveRequest` as ...
+        3. Run ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened instead? Include any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Sanitized logs (strip DSNs, JWT secrets, API keys, and any personally
+        identifiable data). Use `ORJANDA_LOG_LEVEL`/slog output verbatim.
+    validations:
+      required: false
+  - type: textarea
+    id: proposed-fix
+    attributes:
+      label: Proposed fix (optional)
+      description: If you have a hypothesis or a patch, describe it here.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: I have included the Orjanda version / commit SHA and Go version
+          required: true
+        - label: I have not included any secrets, credentials, or personal data
+          required: true

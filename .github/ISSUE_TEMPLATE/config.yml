@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/orjanda-framework/orjanda/security/advisories/new
+    about: Please report security vulnerabilities privately — do not file a public issue.
+  - name: GitHub Discussions
+    url: https://github.com/orjanda-framework/orjanda/discussions
+    about: Usage questions and general help — "how do I…" belongs here, not in Issues.

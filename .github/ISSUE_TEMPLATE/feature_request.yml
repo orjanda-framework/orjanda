@@ -1,0 +1,79 @@
+name: Feature request
+description: Propose a new feature for the Orjanda framework
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature. Before writing, please read PRD §5
+        (Non-Goals) and §44.3 (MVP non-scope) — feature requests outside
+        Orjanda's deliberate scope (e.g. plugins, MCP, MySQL dialect,
+        multi-tenancy activation) will be closed as out-of-scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this solve? Who is affected and how?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should happen? Describe the behavior, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Why it fits Orjanda's scope
+      description: |
+        How does this align with the framework's thesis (a single `Document`
+        declaration drives DB, API, UI, and agent tools through one permission
+        model)? If it touches interfaces, packages, or extension points, note
+        that it must first go through PRD/TAD amendment.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - Document Engine / schema
+        - Permissions / audit
+        - Agent runtime / tools
+        - API (REST / RPC / WebSocket)
+        - Admin UI
+        - CLI / migrations
+        - Config
+        - Testing harness
+        - Documentation
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider, and why are they insufficient?
+    validations:
+      required: false
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Can you contribute a PR?
+      description: If yes, see CONTRIBUTING.md for setup and guidelines.
+      options:
+        - "Yes"
+        - "No"
+        - Maybe / need guidance
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this feature has not been requested before
+          required: true
+        - label: I understand this request will not be accepted if it conflicts with PRD §5 Non-Goals or §44.3 MVP scope
+          required: true
