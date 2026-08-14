@@ -123,7 +123,9 @@ func (s *Site) InitAuditLog() error {
 	if s.DB == nil {
 		return nil
 	}
-	reg, okReg := s.DB.(interface{ RegisterDoc(docType, tableName string) })
+	reg, okReg := s.DB.(interface {
+		RegisterDoc(docType, tableName string)
+	})
 	conn, okConn := s.DB.(interface {
 		Underlying() *sql.DB
 		Dialect() dal.Dialect

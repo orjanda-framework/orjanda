@@ -692,7 +692,7 @@ func TestEngine_AuditLog_DBBackedPersists(t *testing.T) {
 // WriteTx, simulating a DB-backed audit write error inside the transaction.
 type failingAuditLog struct{}
 
-func (failingAuditLog) Write(context.Context, audit.Entry) error               { return assert.AnError }
+func (failingAuditLog) Write(context.Context, audit.Entry) error { return assert.AnError }
 func (failingAuditLog) Query(context.Context, audit.QueryFilter) ([]audit.Entry, error) {
 	return nil, nil
 }

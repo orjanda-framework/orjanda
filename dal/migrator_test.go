@@ -21,7 +21,7 @@ import (
 // change (string -> int) can be exercised against the same table name.
 type testDocInt struct {
 	schema.BaseDocument
-	Title int `oj:"required"`
+	Title int    `oj:"required"`
 	Email string `oj:"unique"`
 }
 

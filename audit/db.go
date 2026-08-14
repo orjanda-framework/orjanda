@@ -65,9 +65,9 @@ func (l *DBLog) WriteTx(ctx context.Context, tx dal.Tx, e Entry) error {
 // applied server-side; the remaining filters are simple equality predicates.
 func (l *DBLog) Query(ctx context.Context, f QueryFilter) ([]Entry, error) {
 	var (
-		where  []string
-		args   []any
-		ph     = l.dialect.Placeholder
+		where []string
+		args  []any
+		ph    = l.dialect.Placeholder
 	)
 	if f.DocType != "" {
 		args = append(args, f.DocType)

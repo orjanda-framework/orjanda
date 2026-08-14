@@ -9,10 +9,16 @@ on:
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
+# Cancel in-progress runs for the same branch/ref when a newer push lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: Build, Vet & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -36,6 +42,16 @@ jobs:
       - name: Test (unit — SQLite in-memory, no network)
         run: go test -race -count=1 ./...
 
+      # Task 14 hardening: make gofmt an explicit failure, independent of lint.
+      - name: Check formatting (gofmt)
+        run: test -z "$(gofmt -l .)" || { echo "gofmt needed for:"; gofmt -l .; exit 1; }
+
+      # Task 14 hardening: detect go.mod/go.sum drift (stale imports/unused deps).
+      - name: Check go mod tidy drift
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
   integration:
     # Phase 11 criterion: the orjanda/testing harness proves WithDialect
     # against a real PostgreSQL instance (testcontainers-go). Gated behind the
@@ -43,6 +59,7 @@ jobs:
     # depends on Docker (PRD §32.1 Integration tests row).
     name: Integration (PostgreSQL via testcontainers)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
