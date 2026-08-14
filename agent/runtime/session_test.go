@@ -118,6 +118,31 @@ func TestSessionManagerNew_SweepsOpportunistically(t *testing.T) {
 	}
 }
 
+// TestSessionManagerRemove_FreesSessionImmediately proves the finding-13
+// behavior: Remove drops a session at once instead of waiting for the TTL, so
+// the WebSocket handler can release a connection's conversation on close.
+func TestSessionManagerRemove_FreesSessionImmediately(t *testing.T) {
+	m := agentruntime.NewSessionManagerWithTTL(10 * time.Minute)
+	s := m.New(auth.Identity{UserID: "u-1"})
+
+	if m.Get(s.ID) == nil {
+		t.Fatal("session must be retrievable before Remove")
+	}
+	m.Remove(s.ID)
+	if m.Get(s.ID) != nil {
+		t.Fatal("session must be gone immediately after Remove")
+	}
+	if got := m.Len(); got != 0 {
+		t.Fatalf("Len() = %d after Remove, want 0", got)
+	}
+
+	// Remove on an unknown id must be a no-op (no panic, no state change).
+	m.Remove(s.ID)
+	if got := m.Len(); got != 0 {
+		t.Fatalf("Len() = %d after removing an unknown id, want 0", got)
+	}
+}
+
 // TestSessionManagerConcurrent proves Get/New/EvictExpired are safe under
 // concurrent access (run under -race).
 func TestSessionManagerConcurrent(t *testing.T) {
@@ -137,6 +162,7 @@ func TestSessionManagerConcurrent(t *testing.T) {
 				}
 				s := m.New(auth.Identity{UserID: "u"})
 				_ = m.Get(s.ID)
+				m.Remove(s.ID)
 				m.Get("nonexistent")
 				m.EvictExpired()
 				runtime.Gosched()

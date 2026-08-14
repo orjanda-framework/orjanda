@@ -291,6 +291,13 @@ func (r *Runtime) Session(id string) *Session {
 	return r.sessions.Get(id)
 }
 
+// RemoveSession releases a session immediately (no-op for unknown ids). The
+// WebSocket handler calls it on connection close so the per-connection session
+// does not linger until SessionTTL (REVIEW-2026-08-12 finding 13).
+func (r *Runtime) RemoveSession(id string) {
+	r.sessions.Remove(id)
+}
+
 // --- Execute (TAD §3.3 / PRD §27.2) ------------------------------------------
 
 // Execute runs one agent turn for the identity on ctx. The session id is read

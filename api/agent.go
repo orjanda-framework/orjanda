@@ -3,15 +3,32 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/orjanda-framework/orjanda/agent/runtime"
 	"github.com/orjanda-framework/orjanda/agent/safety"
 	"github.com/orjanda-framework/orjanda/auth"
 )
+
+// defaultApprovalTimeout bounds a single approval_required round trip on an
+// otherwise idle connection: a human who never answers must not pin the turn
+// (and its goroutine) forever. TAD §12.3 is silent on a timeout, so this is the
+// framework's default (REVIEW-2026-08-12 finding 13).
+const defaultApprovalTimeout = 5 * time.Minute
+
+// maxQueuedTurns bounds the number of message turns awaiting execution per
+// connection. The read loop enqueues non-blockingly and drops messages beyond
+// this cap, so a flooding client cannot grow memory or goroutines without
+// bound; the runtime's per-user safety rate limit still applies to every turn
+// that does execute (REVIEW-2026-08-12 finding 13).
+const maxQueuedTurns = 16
 
 // AgentHandler serves the agent chat WebSocket endpoint (TAD §6.2):
 // WS /api/v1/agent/stream. Client → server messages follow the §6.2 contract
@@ -22,6 +39,13 @@ type AgentHandler struct {
 	// Base holds the runtime options shared across connections. Sink and
 	// Approvals are per-connection and filled in by Stream.
 	Base runtime.Options
+	// AllowedOrigins is the browser-origin allowlist for the upgrade request,
+	// sourced from the same CORSOrigins list that governs the HTTP API
+	// (PRD §12.2). It backs the WebSocket origin check; "*" allows any origin.
+	AllowedOrigins []string
+	// ApprovalTimeout bounds one approval round trip on an idle connection
+	// (0 = defaultApprovalTimeout).
+	ApprovalTimeout time.Duration
 }
 
 // wsClientMessage is a client → server message (TAD §6.2). Payload carries the
@@ -34,8 +58,40 @@ type wsClientMessage struct {
 	Payload  map[string]any `json:"payload,omitempty"`
 }
 
+// authorizeOrigin enforces the same origin policy as the CORS middleware
+// (api/middleware/cors.go, PRD §12.2) on the WebSocket upgrade. Browsers send
+// an Origin header on every WS upgrade; a cross-origin attacker page would too,
+// so a mismatched origin is rejected unless it appears on the configured
+// allowlist ("*" allows any). Requests without an Origin header (CLI, tests)
+// are not browser-initiated and cannot be hijacked via a page, so they pass.
+// This closes the cross-site WebSocket hijacking vector the
+// AcceptOptions.InsecureSkipVerify flag previously left wide open
+// (REVIEW-2026-08-12 finding 13).
+func authorizeOrigin(r *http.Request, allowed []string) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	if u, err := url.Parse(origin); err == nil && strings.EqualFold(u.Host, r.Host) {
+		return true // same-origin
+	}
+	for _, o := range allowed {
+		if o == "*" || strings.EqualFold(o, origin) {
+			return true
+		}
+	}
+	return false
+}
+
 // Stream upgrades the connection and runs the §6.2 message loop.
 func (h *AgentHandler) Stream(w http.ResponseWriter, r *http.Request) {
+	if !authorizeOrigin(r, h.AllowedOrigins) {
+		http.Error(w, "websocket origin not allowed", http.StatusForbidden)
+		return
+	}
+	// Origin is verified above against the CORS allowlist, including the "*"
+	// wildcard that coder/websocket's glob-based OriginPatterns cannot express;
+	// the AcceptOptions origin check is therefore intentionally disabled.
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		slog.Warn("agent.ws.accept", "error", err)
@@ -43,12 +99,21 @@ func (h *AgentHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = c.Close(websocket.StatusInternalError, "closing") }()
 
+	// The execution context is the cancellable request context: when the
+	// connection closes, Read fails, cancel() fires, and the turn worker plus
+	// any in-flight approval round trips abort instead of leaking. The old
+	// context.WithoutCancel stripped that cancellation, so an approval whose
+	// client never answered (or a turn on a dropped connection) blocked the
+	// goroutine forever (REVIEW-2026-08-12 finding 13).
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	connCtx := context.WithoutCancel(ctx)
 
-	sink := &wsSink{ctx: connCtx, c: c}
-	gw := &wsGateway{pending: make(map[string]chan runtime.ApprovalResponse)}
+	sink := &wsSink{ctx: ctx, c: c}
+	timeout := h.ApprovalTimeout
+	if timeout <= 0 {
+		timeout = defaultApprovalTimeout
+	}
+	gw := &wsGateway{pending: make(map[string]chan runtime.ApprovalResponse), timeout: timeout}
 
 	opts := h.Base
 	opts.Sink = sink
@@ -60,18 +125,40 @@ func (h *AgentHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := auth.FromContext(r.Context())
-	idCtx := auth.NewContext(connCtx, id)
+	idCtx := auth.NewContext(ctx, id)
 
 	// One session per connection (TAD §11.1/§12.1 continuity): a turn may
 	// reference an earlier turn's result, so the transcript, seen DocTypes,
-	// and target count must survive across the connection's messages instead
-	// of being reset by a fresh session on every message (REVIEW-2026-08-12
-	// finding 3). The session expires via the runtime's SessionTTL once the
-	// connection goes idle.
+	// and target count must survive across the connection's messages. The
+	// session is released when the connection closes rather than lingering
+	// for the SessionTTL (REVIEW-2026-08-12 finding 13).
 	sess := rt.NewSession(id)
+	defer rt.RemoveSession(sess.ID)
 	sessionCtx := safety.WithSession(idCtx, sess.ID)
 
-	var turnMu sync.Mutex
+	// Turns run on a single worker draining a bounded queue. Turns were already
+	// serialized (a turn may reference the previous one), so one worker replaces
+	// the goroutine-per-message pattern that let a flooding client spawn
+	// unbounded goroutines blocked on the turn mutex; the queue cap is the
+	// per-connection rate limit (REVIEW-2026-08-12 finding 13). The worker stops
+	// the moment the connection context cancels.
+	turns := make(chan wsClientMessage, maxQueuedTurns)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg := <-turns:
+				if ctx.Err() != nil {
+					return
+				}
+				if _, err := rt.Execute(sessionCtx, msg.Text); err != nil {
+					sink.Send(runtime.Event{Type: runtime.EventToolEnd, Content: "error: " + err.Error()})
+				}
+			}
+		}
+	}()
+
 	for {
 		_, raw, err := c.Read(ctx)
 		if err != nil {
@@ -84,15 +171,17 @@ func (h *AgentHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		}
 		switch msg.Type {
 		case "message":
-			go func(text string) {
-				// Serialize turns so a slow run can't interleave with the next.
-				turnMu.Lock()
-				defer turnMu.Unlock()
-				if _, err := rt.Execute(sessionCtx, text); err != nil {
-					sink.Send(runtime.Event{Type: runtime.EventToolEnd, Content: "error: " + err.Error()})
-				}
-			}(msg.Text)
+			// Non-blocking enqueue: a saturated worker means the client is
+			// flooding, so the excess message is dropped with an event instead
+			// of buffered without bound.
+			select {
+			case turns <- msg:
+			default:
+				sink.Send(runtime.Event{Type: runtime.EventToolEnd, Content: "too many pending requests; try again"})
+			}
 		case "approval_response":
+			// Handled inline, not queued behind turns: it unblocks a pending
+			// approval round trip and must never wait behind the worker.
 			if msg.ActionID == "" {
 				continue
 			}
@@ -113,6 +202,9 @@ type wsSink struct {
 }
 
 func (s *wsSink) Send(evt runtime.Event) {
+	if s.ctx.Err() != nil {
+		return // connection is closing; drop rather than log noise
+	}
 	raw, err := json.Marshal(evt)
 	if err != nil {
 		slog.Warn("agent.ws.marshal", "error", err)
@@ -121,15 +213,21 @@ func (s *wsSink) Send(evt runtime.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.c.Write(s.ctx, websocket.MessageText, raw); err != nil {
-		slog.Warn("agent.ws.write", "error", err)
+		if s.ctx.Err() == nil {
+			slog.Warn("agent.ws.write", "error", err)
+		}
 	}
 }
 
 // wsGateway blocks on an approval_required round trip until the matching
-// approval_response arrives on the connection (TAD §12.3).
+// approval_response arrives on the connection (TAD §12.3). The round trip is
+// bounded both by the connection context (cancelled when the connection
+// closes) and by timeout, so a client that neither answers nor disconnects
+// cannot pin the turn forever (REVIEW-2026-08-12 finding 13).
 type wsGateway struct {
 	mu      sync.Mutex
 	pending map[string]chan runtime.ApprovalResponse
+	timeout time.Duration
 }
 
 func (g *wsGateway) RequestApproval(ctx context.Context, payload runtime.ApprovalPayload) (runtime.ApprovalResponse, error) {
@@ -143,11 +241,20 @@ func (g *wsGateway) RequestApproval(ctx context.Context, payload runtime.Approva
 		g.mu.Unlock()
 	}()
 
+	var timeout <-chan time.Time
+	if g.timeout > 0 {
+		t := time.NewTimer(g.timeout)
+		defer t.Stop()
+		timeout = t.C
+	}
+
 	select {
 	case resp := <-ch:
 		return resp, nil
 	case <-ctx.Done():
 		return runtime.ApprovalResponse{}, ctx.Err()
+	case <-timeout:
+		return runtime.ApprovalResponse{}, fmt.Errorf("approval %s timed out after %s", payload.ActionID, g.timeout)
 	}
 }
 

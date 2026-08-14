@@ -154,6 +154,16 @@ func (m *SessionManager) EvictExpired() int {
 	return m.evictExpiredLocked(time.Now())
 }
 
+// Remove deletes a session from the manager by id (no-op when unknown). The
+// WebSocket handler calls it when a connection closes so an abandoned
+// conversation is released immediately instead of lingering for the TTL
+// (REVIEW-2026-08-12 finding 13).
+func (m *SessionManager) Remove(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, id)
+}
+
 func (m *SessionManager) evictExpiredLocked(now time.Time) int {
 	if m.ttl <= 0 {
 		return 0

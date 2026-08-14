@@ -79,7 +79,10 @@ func NewRouter(opts RouterOptions) *chi.Mux {
 
 		// Agent Chat WebSocket (TAD §6.2, §12.3)
 		if opts.AgentRuntime != nil {
-			r.Get("/agent/stream", (&AgentHandler{Base: *opts.AgentRuntime}).Stream)
+			r.Get("/agent/stream", (&AgentHandler{
+				Base:           *opts.AgentRuntime,
+				AllowedOrigins: opts.CORSOrigins,
+			}).Stream)
 		}
 
 		// RPC Custom Methods
