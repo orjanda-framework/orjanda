@@ -157,7 +157,7 @@
 
 ### Task 16 — `docs/getting-started.md` — **NEW**
 
-- **Must contain:** Requirements (Go 1.26+); install the CLI; scaffold a project (`orjanda init`, `orjanda new document`); write a first `Document` with `oj` tags (`config/config.go`, `schema` tags); run migrations (`orjanda migrate diff/up`); `ORJANDA_ENV=development orjanda serve`; browse the admin UI at `localhost:8080`; exercise REST + agent chat; 15-minute "hello world" flow; full pointer to PRD §37 (example developer workflow) and §38 (agent workflow). Uses the CLI scaffold, since `orjanda-app-hr-example` no longer exists.
+- **Must contain:** Requirements (Go 1.26+); install the CLI; scaffold a project (`orjanda init`, `orjanda new document`); write a first `Document` with `oj` tags (`config/config.go`, `schema` tags); run migrations (`orjanda migrate diff/up`); `orjanda serve` (development is the default environment); browse the admin UI at `localhost:8080`; exercise REST + agent chat; 15-minute "hello world" flow; full pointer to PRD §37 (example developer workflow) and §38 (agent workflow). Uses the CLI scaffold, since `orjanda-app-hr-example` no longer exists.
 - **Reference:** `cli/` (all commands), `config/config.go`, `schema/`, `orjanda.yaml`, PRD §37–38.
 - **Dependencies:** Task 1 (README quick-start must agree with this), Task 14 (commands verified by CI).
 - **Validation:** Every step verifiable by executing the commands; matches `cli/*_test.go` behavior.

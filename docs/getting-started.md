@@ -134,11 +134,11 @@ Destructive changes (dropped columns/tables) are gated behind
 
 ## 4. Run the server
 
-`orjanda serve` starts the site in the environment selected by `ORJANDA_ENV`
-(or the `env` config key, default `development`):
+`orjanda serve` starts the site in the `development` environment by default,
+selected by `ORJANDA_ENV` (or the `env` config key) when set:
 
 ```bash
-ORJANDA_ENV=development orjanda serve
+orjanda serve
 ```
 
 On first run it prints a one-time bootstrap credential:

@@ -110,7 +110,7 @@ the same model as `django-admin startproject` or `bench init` in Frappe.
 ```
 1. go install the orjanda CLI           →  you get the orjanda command
 2. orjanda init myapp                   →  your new Application (a Go module)
-3. cd myapp && ORJANDA_ENV=development orjanda serve   →  your app's dev server, on :8080
+3. cd myapp && orjanda serve   →  your app's dev server, on :8080 (development is the default environment)
 ```
 
 ### Prerequisites
@@ -212,13 +212,14 @@ func (d *LeaveRequest) Set(field string, value any) orjerrors.Error {
 
 ### Run it
 
-Still inside your `myapp` directory, start your application's server. The
-environment is chosen by `ORJANDA_ENV` (`development` is the default; set it
-explicitly as documented):
+Still inside your `myapp` directory, start your application's server:
 
 ```bash
-ORJANDA_ENV=development orjanda serve
+orjanda serve
 ```
+
+`orjanda serve` runs in the `development` environment by default — selected by
+`ORJANDA_ENV` (or the `env` config key) only when you set it explicitly:
 
 - The development server compiles the Registry, auto-creates missing tables,
   and starts on `http://127.0.0.1:8080` (SQLite by default).

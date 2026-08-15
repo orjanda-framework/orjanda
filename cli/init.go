@@ -206,5 +206,5 @@ func printInitSummary(dir string, m *manifest, replace string) {
 	println("Next:")
 	println("  cd " + dir)
 	println("  orjanda new document Department --module=org")
-	println("  orjanda serve    # ORJANDA_ENV=development|production selects the environment")
+	println("  orjanda serve    # development by default; ORJANDA_ENV=production selects production")
 }
