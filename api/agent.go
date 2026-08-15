@@ -113,7 +113,11 @@ func (h *AgentHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	if timeout <= 0 {
 		timeout = defaultApprovalTimeout
 	}
-	gw := &wsGateway{pending: make(map[string]chan runtime.ApprovalResponse), timeout: timeout}
+	gw := &wsGateway{
+		pending: make(map[string]chan runtime.ApprovalResponse),
+		early:   make(map[string]runtime.ApprovalResponse),
+		timeout: timeout,
+	}
 
 	opts := h.Base
 	opts.Sink = sink
@@ -224,15 +228,34 @@ func (s *wsSink) Send(evt runtime.Event) {
 // bounded both by the connection context (cancelled when the connection
 // closes) and by timeout, so a client that neither answers nor disconnects
 // cannot pin the turn forever (REVIEW-2026-08-12 finding 13).
+//
+// Responses may race ahead of the request's registration: the runtime emits
+// approval_required and only then calls RequestApproval, so a client that
+// answers during the gap would otherwise have its response dropped and the
+// round trip stall until timeout. early buffers those out-of-order responses
+// for consumption on registration.
 type wsGateway struct {
 	mu      sync.Mutex
 	pending map[string]chan runtime.ApprovalResponse
+	early   map[string]runtime.ApprovalResponse
 	timeout time.Duration
 }
+
+// maxEarlyResponses bounds the early-arrival buffer. Turns on a connection are
+// serialized by the single worker, so at most one approval round trip is
+// pending at a time; 16 generously covers responses that raced ahead while
+// keeping a client that floods unknown action ids from growing the buffer
+// without bound (REVIEW-2026-08-12 finding 13).
+const maxEarlyResponses = 16
 
 func (g *wsGateway) RequestApproval(ctx context.Context, payload runtime.ApprovalPayload) (runtime.ApprovalResponse, error) {
 	ch := make(chan runtime.ApprovalResponse, 1)
 	g.mu.Lock()
+	if resp, ok := g.early[payload.ActionID]; ok {
+		delete(g.early, payload.ActionID)
+		g.mu.Unlock()
+		return resp, nil
+	}
 	g.pending[payload.ActionID] = ch
 	g.mu.Unlock()
 	defer func() {
@@ -259,14 +282,20 @@ func (g *wsGateway) RequestApproval(ctx context.Context, payload runtime.Approva
 }
 
 // submit delivers an approval_response to the matching pending request,
-// reporting whether one was waiting for it.
+// buffering it when the request has not registered yet so an early answer is
+// not dropped (it is consumed by RequestApproval on registration). It reports
+// whether the response was accepted; a full early buffer is the only case in
+// which one is dropped.
 func (g *wsGateway) submit(resp runtime.ApprovalResponse) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	ch, ok := g.pending[resp.ActionID]
-	if !ok {
+	if ch, ok := g.pending[resp.ActionID]; ok {
+		ch <- resp
+		return true
+	}
+	if len(g.early) >= maxEarlyResponses {
 		return false
 	}
-	ch <- resp
+	g.early[resp.ActionID] = resp
 	return true
 }
