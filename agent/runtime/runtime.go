@@ -62,6 +62,7 @@ type Event struct {
 	Tool     string           `json:"tool,omitempty"`
 	Success  bool             `json:"success,omitempty"`
 	Approval *ApprovalPayload `json:"approval,omitempty"`
+	Sender   string           `json:"sender,omitempty"` // "user" or "assistant"
 }
 
 // MarshalJSON flattens an approval_required event to the TAD §6.2 wire shape
@@ -463,7 +464,7 @@ func (r *Runtime) emit(evt Event) {
 
 func (r *Runtime) emitTokens(content string) {
 	if content != "" {
-		r.emit(Event{Type: EventToken, Content: content})
+		r.emit(Event{Type: EventToken, Content: content, Sender: "assistant"})
 	}
 }
 

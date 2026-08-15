@@ -105,10 +105,28 @@ export function AgentChatPage() {
     sendMessage(text);
   }
 
-  const tokens = events
-    .filter((e): e is AgentServerEvent & { type: 'token' } => e.type === 'token' && Boolean(e.content))
-    .map((e) => e.content)
-    .join('');
+  // Group messages by sender for proper rendering
+  const tokenEvents = events.filter((e): e is Extract<AgentServerEvent, { type: 'token' }> => e.type === 'token' && Boolean(e.content));
+
+  // Group consecutive tokens from the same sender into single messages
+  const messages: Array<{ content: string; sender: 'user' | 'assistant' }> = [];
+  let currentMessage: { content: string; sender: 'user' | 'assistant' } | null = null;
+
+  for (const event of tokenEvents) {
+    const sender = event.sender || 'assistant';
+    const content = event.content || '';
+    if (currentMessage && currentMessage.sender === sender) {
+      currentMessage.content += content;
+    } else {
+      if (currentMessage) {
+        messages.push(currentMessage);
+      }
+      currentMessage = { content, sender };
+    }
+  }
+  if (currentMessage) {
+    messages.push(currentMessage);
+  }
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -131,11 +149,22 @@ export function AgentChatPage() {
         {approvals.map((e) => (
           <ApprovalCard key={e.action_id} event={e} onRespond={respond} />
         ))}
-        {tokens && (
-          <div className="whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-800">
-            {tokens}
+        {messages.map((e, i) => (
+          <div
+            key={i}
+            className={`flex ${e.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-[80%] whitespace-pre-wrap rounded-md px-3 py-2 text-sm ${
+                e.sender === 'user'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-50 text-slate-800'
+              }`}
+            >
+              {e.content}
+            </div>
           </div>
-        )}
+        ))}
         {events
           .filter((e): e is AgentServerEvent & { type: 'tool_start' } => e.type === 'tool_start')
           .map((e, i) => (

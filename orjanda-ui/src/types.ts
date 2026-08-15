@@ -76,7 +76,7 @@ export interface LoginResponse {
 
 // Agent Chat WebSocket contract (TAD §6.2, §12.3).
 export type AgentServerEvent =
-  | { type: 'token'; content?: string }
+  | { type: 'token'; content?: string; sender?: 'user' | 'assistant' }
   | { type: 'tool_start'; tool?: string }
   | { type: 'tool_end'; tool?: string; success?: boolean; content?: string }
   | {
