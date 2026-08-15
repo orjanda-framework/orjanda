@@ -1050,6 +1050,7 @@ Formalizes PRD §21 (CLI and Developer Experience), which listed commands withou
 | `orjanda test` | `go test ./...`, routing `orjanda/testing.NewTestSite` (§17) to an ephemeral SQLite DB | `-run` (passthrough) |
 | `orjanda agent chat` | Terminal-mode `agent.Runtime.Execute` loop against the local site; prints `tool_start`/`tool_end` inline instead of over the WebSocket (§6.2) | `--user` (impersonate) |
 | `orjanda registry list` / `describe <doc>` | `schema.Registry.List()` / `Get()`, pretty-printed; `--json` feeds the TypeScript codegen pipeline (§6.3) | `--json` |
+| `orjanda version` | `internal/version.Current()`, prints CLI/framework version (§18) | `--verbose` (adds ModulePath, GoVersion, VCSRevision, VCSDirty) |
 
 `ORJANDA_ENV` (or the `env` config key) selects the deployment environment; the former `bench` command has been removed. This is the concrete mechanism behind PRD §21.1's dev/production split: `development` (default) favors fast iteration (auto-create, warn-and-continue on schema errors, ephemeral JWT secret), `production` favors fail-fast safety (refuses to start on any Registry, migration-drift, or stale-codegen error, and never generates a secret). A bare Application binary run without arguments defaults to `serve` in development.
 
@@ -1093,9 +1094,99 @@ func ApprovalPrompt() MockStep // scripts the client-side approval round-trip, �
 
 ---
 
-## 18. Implementation Sequencing (Milestones)
+## 18. CLI Version Propagation Contract
 
-*(Originally §7 in TAD v1.0.0; renumbered here. Items 1–6 are unchanged from that version. Item 7 is new in this revision and sequences the delivery of §7–§17.)*
+Formalizes the mechanism by which the CLI binary discovers its own version and propagates it to `orjanda init`-generated applications. The CLI lives inside the same Go module as the framework (`github.com/orjanda-framework/orjanda/cmd/orjanda`), so the CLI's module version, as resolved by `go install github.com/orjanda-framework/orjanda/cmd/orjanda@vX.Y.Z`, is the framework version it should scaffold.
+
+### 18.1 Version Discovery Contract
+
+```go
+package version // internal/version (CLI implementation detail, not framework API)
+
+type Info struct {
+    ModulePath   string // debug.BuildInfo.Main.Path
+    Version      string // debug.BuildInfo.Main.Version, verbatim
+    IsRelease    bool   // true iff Version is a clean, tagged semver
+    GoVersion    string // debug.BuildInfo.GoVersion
+    VCSRevision  string // from BuildInfo.Settings["vcs.revision"], if present
+    VCSDirty     bool   // from BuildInfo.Settings["vcs.modified"], if present
+}
+
+// Current reads the running binary's own build metadata via
+// runtime/debug.ReadBuildInfo(). Never makes a network call, never reads
+// files, never shells out to git. Returns a zero Info on error (e.g. when
+// build info is stripped).
+func Current() Info
+```
+
+### 18.2 Release Classification Rule
+
+`IsRelease` is computed by an unexported helper:
+
+```go
+func isRelease(v string) bool {
+    if v == "" || v == "(devel)" {
+        return false
+    }
+    if strings.HasSuffix(v, "+dirty") {
+        return false
+    }
+    return !module.IsPseudoVersion(v) // golang.org/x/mod/module
+}
+```
+
+**Rationale:** `golang.org/x/mod/module.IsPseudoVersion` is the canonical Go toolchain implementation for distinguishing between clean tags (`v1.2.3`) and pseudo-versions (`v1.2.3-20240815abcdef`). Hand-rolling a regex would diverge from Go's own semantics and fail to handle edge cases (e.g. pre-release versions with build metadata). The `+dirty` suffix is checked explicitly because Go's pseudo-version detection does not treat it as a pseudo-version, but a dirty working tree is not a release build.
+
+### 18.3 Behavior Table
+
+| Build scenario | `Info.Version` | `Info.IsRelease` | `orjanda version` output | `orjanda init` behavior (no flags) |
+|---|---|---|---|---|
+| `go install .../cmd/orjanda@v1.2.3` | `v1.2.3` | `true` | `orjanda v1.2.3` | Writes `require github.com/orjanda-framework/orjanda v1.2.3` |
+| `go install .../cmd/orjanda@latest` | Pseudo-version (e.g. `v0.0.0-20240815abcdef`) | `false` | `orjanda v0.0.0-20240815abcdef` | Warning + placeholder `v0.0.0 // TODO: ...` |
+| Local `go build ./cmd/orjanda` (Go 1.24+ VCS-derived) | Pseudo-version or `(devel)` | `false` | `orjanda <detected>` | Warning + placeholder |
+| Local `go build ./cmd/orjanda` (no VCS info) | `(devel)` | `false` | `orjanda (devel)` | Warning + placeholder |
+| Binary with stripped build info | `(devel)` or empty | `false` | `orjanda (devel)` | Warning + placeholder |
+
+**Module path guard:** Before using `Info.Version` for anything `orjanda init` does, the implementation asserts `Info.ModulePath == "github.com/orjanda-framework/orjanda"`. A mismatch (e.g. a fork or renamed module) is treated the same as a non-release build — the command warns and writes a placeholder, failing closed rather than silently propagating a wrong path.
+
+### 18.4 `orjanda init` Flag Precedence
+
+Two new flags control the framework version written to the generated `go.mod`:
+
+| Flag | Purpose | Precedence |
+|---|---|---|
+| `--framework-version vX.Y.Z` | Explicit override; use this string verbatim for the `require` line | Highest; takes precedence over everything else |
+| `--replace-local <path>` | Write `require github.com/orjanda-framework/orjanda v0.0.0` **and** `replace github.com/orjanda-framework/orjanda => <path>` | Medium; checked only if `--framework-version` is not set |
+| (no flags) | Use `version.Current()` to determine the version | Lowest; follows the behavior table in §18.3 |
+
+**Branching logic (when no override flags are set):**
+
+1. If `Info.IsRelease == true` and `Info.ModulePath` matches → write `require github.com/orjanda-framework/orjanda {Info.Version}`.
+2. Otherwise → print a warning to stderr naming the actual detected version and explaining the two override flags, then write `require github.com/orjanda-framework/orjanda v0.0.0 // TODO: set to a released Orjanda version (see --framework-version / --replace-local)`.
+
+The warning is not a fatal error — `orjanda init` must still exit 0 and produce a usable (if incomplete) scaffold, so local experimentation is not blocked.
+
+### 18.5 CLI Command Table Addendum
+
+Add to the command table in §16:
+
+| Command | Underlying call | Key flags |
+|---|---|---|
+| `orjanda version` | `internal/version.Current()`, prints version | `--verbose` (adds ModulePath, GoVersion, VCSRevision, VCSDirty) |
+
+### 18.6 Dependency Addendum
+
+Add to the technology choices table in PRD §42:
+
+| Component | Technology | Rationale |
+|---|---|---|
+| **Version classification** | `golang.org/x/mod` | Canonical pseudo-version detection via `module.IsPseudoVersion` |
+
+---
+
+## 19. Implementation Sequencing (Milestones)
+
+*(Originally §18 in TAD v1.1.0; renumbered here. Items 1–6 are unchanged from that version. Item 7 is new in that revision and sequences the delivery of §7–§17.)*
 
 1. **M1: Core Primitives & Registry**
    - Implement `schema`, `errors`, and `config`.

@@ -49,7 +49,7 @@ func TestValidateAppName(t *testing.T) {
 func TestRunInitDefaultDir(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	assertInitApp(t, "myapp", "myapp", "myapp", "")
@@ -60,7 +60,7 @@ func TestRunInitDirFlag(t *testing.T) {
 
 	// App name stays "myapp"; files land under playground/myapp. The dir path
 	// must never leak into go.mod/app.go/the manifest.
-	if err := runInitScaffold("myapp", "", "", "playground/myapp", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "playground/myapp", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	assertInitApp(t, "playground/myapp", "myapp", "myapp", "")
@@ -70,7 +70,7 @@ func TestRunInitDirFlag(t *testing.T) {
 func TestRunInitModuleFlagPreserved(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "example.com/acme/myapp", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "example.com/acme/myapp", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	assertInitApp(t, "myapp", "myapp", "example.com/acme/myapp", "")
@@ -79,7 +79,7 @@ func TestRunInitModuleFlagPreserved(t *testing.T) {
 func TestRunInitReplaceFlagPreserved(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "", "vendor/orjanda", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "vendor/orjanda", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	assertInitApp(t, "myapp", "myapp", "myapp", "vendor/orjanda")
@@ -88,7 +88,7 @@ func TestRunInitReplaceFlagPreserved(t *testing.T) {
 func TestRunInitNoReplaceLine(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	if gomod := readFile(t, "myapp/go.mod"); strings.Contains(gomod, "replace github.com/orjanda-framework/orjanda") {
@@ -102,7 +102,7 @@ func TestRunInitExistingDirRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := runInitScaffold("myapp", "", "", "", noopTidy)
+	err := runInitScaffold("myapp", "", "", "", "", "", noopTidy)
 	if err == nil || !strings.Contains(err.Error(), `"myapp" already exists`) {
 		t.Errorf("expected 'already exists' error, got: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestRunInitDirFlagExistingDirRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := runInitScaffold("myapp", "", "", "playground/myapp", noopTidy)
+	err := runInitScaffold("myapp", "", "", "playground/myapp", "", "", noopTidy)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("expected 'already exists' error, got: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestRunInitDirFlagExistingDirRejected(t *testing.T) {
 func TestRunInitPathLikeNameRejected(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	err := runInitScaffold("playground/myapp", "", "", "", noopTidy)
+	err := runInitScaffold("playground/myapp", "", "", "", "", "", noopTidy)
 	if err == nil {
 		t.Fatal("expected an error for a path-like app name")
 	}
@@ -139,7 +139,7 @@ func TestRunInitPathLikeNameRejected(t *testing.T) {
 func TestRunInitModulePathDefaultsToAppName(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("my-hr-system", "", "", "playground", noopTidy); err != nil {
+	if err := runInitScaffold("my-hr-system", "", "", "playground", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	// Default module path comes from the app name, not the destination dir.
@@ -152,7 +152,7 @@ func TestRunInitModulePathDefaultsToAppName(t *testing.T) {
 func TestRunInitDirFlagThenNewDocument(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "", "", "playground/myapp", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "playground/myapp", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	t.Chdir("playground/myapp")
@@ -270,7 +270,7 @@ func testManifest(t *testing.T, dir string) *manifest {
 func TestScaffoldOrjandaYamlDocumentsDevSecret(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 
@@ -293,7 +293,7 @@ func TestScaffoldOrjandaYamlDocumentsDevSecret(t *testing.T) {
 func TestScaffoldedAppConfigEnvServes(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 
@@ -322,7 +322,7 @@ func TestScaffoldedAppConfigEnvServes(t *testing.T) {
 func TestScaffoldedExampleDocumentMatchesREADME(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	t.Chdir("myapp")
@@ -340,5 +340,53 @@ func TestScaffoldedExampleDocumentMatchesREADME(t *testing.T) {
 	appgo := readFile(t, "app.go")
 	if !strings.Contains(appgo, "appdocs.LeaveRequest") {
 		t.Errorf("app.go should register the generated Document:\n%s", appgo)
+	}
+}
+
+// TestRunInitFrameworkVersionFlag tests that --framework-version takes highest precedence
+func TestRunInitFrameworkVersionFlag(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if err := runInitScaffold("myapp", "", "", "", "v1.2.3", "", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+
+	gomod := readFile(t, "myapp/go.mod")
+	if !strings.Contains(gomod, "require github.com/orjanda-framework/orjanda v1.2.3") {
+		t.Errorf("go.mod should contain explicit framework version:\n%s", gomod)
+	}
+}
+
+// TestRunInitReplaceLocalFlag tests that --replace-local writes v0.0.0 require with replace
+func TestRunInitReplaceLocalFlag(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if err := runInitScaffold("myapp", "", "", "", "", "../orjanda", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+
+	gomod := readFile(t, "myapp/go.mod")
+	if !strings.Contains(gomod, "require github.com/orjanda-framework/orjanda v0.0.0") {
+		t.Errorf("go.mod should contain v0.0.0 require:\n%s", gomod)
+	}
+	if !strings.Contains(gomod, "replace github.com/orjanda-framework/orjanda => ../orjanda") {
+		t.Errorf("go.mod should contain replace directive:\n%s", gomod)
+	}
+}
+
+// TestRunInitVersionFlagPrecedence tests that --framework-version overrides --replace-local
+func TestRunInitVersionFlagPrecedence(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if err := runInitScaffold("myapp", "", "", "", "v2.0.0", "../orjanda", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+
+	gomod := readFile(t, "myapp/go.mod")
+	if !strings.Contains(gomod, "require github.com/orjanda-framework/orjanda v2.0.0") {
+		t.Errorf("go.mod should use --framework-version value, not v0.0.0:\n%s", gomod)
+	}
+	if !strings.Contains(gomod, "replace github.com/orjanda-framework/orjanda => ../orjanda") {
+		t.Errorf("go.mod should still contain replace directive when both flags set:\n%s", gomod)
 	}
 }

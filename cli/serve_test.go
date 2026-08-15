@@ -103,7 +103,7 @@ func TestServeRegeneratesCodegenOnHashChange(t *testing.T) {
 func TestRunServeDevelopmentWithoutJWTSecret(t *testing.T) {
 	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
 	t.Chdir(t.TempDir())
-	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	t.Chdir("myapp")
@@ -122,7 +122,7 @@ func TestRunServeDevelopmentWithoutJWTSecret(t *testing.T) {
 func TestRunServeProductionRequiresJWTSecret(t *testing.T) {
 	t.Setenv("ORJANDA_ENV", config.EnvProduction)
 	t.Chdir(t.TempDir())
-	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+	if err := runInitScaffold("myapp", "", "", "", "", "", noopTidy); err != nil {
 		t.Fatalf("runInitScaffold: %v", err)
 	}
 	t.Chdir("myapp")

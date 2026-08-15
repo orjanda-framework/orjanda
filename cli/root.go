@@ -30,6 +30,7 @@ func NewRootCmd(configure func(*orjanda.Site) error) *cobra.Command {
 		newTestCmd(),
 		newAgentCmd(b),
 		newRegistryCmd(b),
+		newVersionCmd(),
 	)
 
 	return root

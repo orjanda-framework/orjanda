@@ -102,7 +102,7 @@ var goModTemplate = template.Must(template.New("go.mod").Parse(
 
 go 1.26.5
 
-require github.com/orjanda-framework/orjanda v0.1.0
+require github.com/orjanda-framework/orjanda {{.FrameworkVersion}}
 {{- if .Replace}}
 
 replace github.com/orjanda-framework/orjanda => {{.Replace}}

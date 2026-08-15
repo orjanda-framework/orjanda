@@ -2,16 +2,18 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/orjanda-framework/orjanda/internal/version"
 	"github.com/spf13/cobra"
 )
 
 func newInitCmd() *cobra.Command {
-	var module, replace, dir string
+	var module, replace, dir, frameworkVersion, replaceLocal string
 
 	cmd := &cobra.Command{
 		Use:   "init <name>",
@@ -19,13 +21,15 @@ func newInitCmd() *cobra.Command {
 		Long:  "Scaffolds go.mod + main.go importing orjanda-core, an orjanda.yaml, and the modules/migrations layout (TAD §16, PRD §21.2).",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(args[0], module, replace, dir)
+			return runInit(args[0], module, replace, dir, frameworkVersion, replaceLocal)
 		},
 	}
 
 	cmd.Flags().StringVar(&module, "module", "", "Go module path (defaults to the app name)")
 	cmd.Flags().StringVar(&replace, "replace", "", "local path to the orjanda framework for a go.mod replace directive (defaults to ORJANDA_FRAMEWORK_PATH or a discovered sibling checkout)")
 	cmd.Flags().StringVar(&dir, "dir", "", "destination directory for the Application (defaults to the app name); the app name stays the first argument")
+	cmd.Flags().StringVar(&frameworkVersion, "framework-version", "", "explicit framework version to write in go.mod (e.g. v1.2.3); takes precedence over auto-detection")
+	cmd.Flags().StringVar(&replaceLocal, "replace-local", "", "local path to the orjanda framework for a go.mod replace directive with v0.0.0 require (alternative to --replace)")
 
 	return cmd
 }
@@ -34,13 +38,13 @@ func newInitCmd() *cobra.Command {
 // files land (Django startproject-style): the first argument is always the app
 // name, --dir chooses the destination. When dir is empty it defaults to the
 // app name, mirroring Django's `startproject name` creating ./<name>.
-func runInit(appName, module, replace, dir string) error {
-	return runInitScaffold(appName, module, replace, dir, tidyAppModule)
+func runInit(appName, module, replace, dir, frameworkVersion, replaceLocal string) error {
+	return runInitScaffold(appName, module, replace, dir, frameworkVersion, replaceLocal, tidyAppModule)
 }
 
 // runInitScaffold is runInit with an injectable dependency resolver so unit
 // tests can exercise the full scaffold without shelling out to `go mod tidy`.
-func runInitScaffold(appName, module, replace, dir string, tidy func(dir string) error) error {
+func runInitScaffold(appName, module, replace, dir, frameworkVersion, replaceLocal string, tidy func(dir string) error) error {
 	if err := validateAppName(appName); err != nil {
 		return err
 	}
@@ -58,12 +62,47 @@ func runInitScaffold(appName, module, replace, dir string, tidy func(dir string)
 	if modulePath == "" {
 		modulePath = appName
 	}
-	if replace == "" {
-		replace = discoverFrameworkPath(dir)
+
+	// Determine the framework version and replace directive based on flag precedence
+	// See TAD §18.4 for the full contract.
+	var effectiveReplace string
+	var effectiveVersion string
+
+	if frameworkVersion != "" {
+		// --framework-version takes highest precedence
+		effectiveVersion = frameworkVersion
+		// If --replace-local is also set, use it; otherwise use --replace if set
+		if replaceLocal != "" {
+			effectiveReplace = replaceLocal
+		} else if replace != "" {
+			effectiveReplace = replace
+		}
+	} else if replaceLocal != "" {
+		// --replace-local takes medium precedence
+		effectiveVersion = "v0.0.0"
+		effectiveReplace = replaceLocal
+	} else {
+		// Auto-detect from build info (lowest precedence)
+		info := version.Current()
+		if info.IsRelease && info.ModulePath == "github.com/orjanda-framework/orjanda" {
+			effectiveVersion = info.Version
+		} else {
+			// Non-release or module path mismatch: warn and use placeholder
+			effectiveVersion = "v0.0.0 // TODO: set to a released Orjanda version (see --framework-version / --replace-local)"
+			if info.ModulePath != "github.com/orjanda-framework/orjanda" {
+				fmt.Fprintf(os.Stderr, "orjanda init: warning: detected module path %q does not match expected github.com/orjanda-framework/orjanda\n", info.ModulePath)
+			}
+			fmt.Fprintf(os.Stderr, "orjanda init: warning: detected version %q is not a release build\n", info.Version)
+			fmt.Fprintf(os.Stderr, "orjanda init: use --framework-version vX.Y.Z to set an explicit version, or --replace-local <path> for local development\n")
+		}
+		if replace == "" {
+			replace = discoverFrameworkPath(dir)
+		}
+		effectiveReplace = replace
 	}
 
 	m := &manifest{AppName: appName, ModulePath: modulePath}
-	if err := scaffoldApp(dir, m, replace); err != nil {
+	if err := scaffoldApp(dir, m, effectiveVersion, effectiveReplace); err != nil {
 		return err
 	}
 
@@ -73,16 +112,16 @@ func runInitScaffold(appName, module, replace, dir string, tidy func(dir string)
 		return errf("resolving module dependencies: %w", err)
 	}
 
-	printInitSummary(dir, m, replace)
+	printInitSummary(dir, m, effectiveReplace, effectiveVersion)
 	return nil
 }
 
 // scaffoldApp writes the Application's starter files and migrations/ inside
 // dir. go.mod, app.go, and the manifest derive from the manifest's AppName and
 // ModulePath, never from the destination dir.
-func scaffoldApp(dir string, m *manifest, replace string) error {
+func scaffoldApp(dir string, m *manifest, frameworkVersion, replace string) error {
 	files := map[string][]byte{
-		"go.mod":       renderGoMod(m, replace),
+		"go.mod":       renderGoMod(m, frameworkVersion, replace),
 		"main.go":      renderMainGo(),
 		"app.go":       renderAppGo(m),
 		"orjanda.yaml": []byte(orjandaYAMLTemplate),
@@ -145,11 +184,12 @@ func tidyAppModule(dir string) error {
 	return nil
 }
 
-func renderGoMod(m *manifest, replace string) []byte {
+func renderGoMod(m *manifest, frameworkVersion, replace string) []byte {
 	var b strings.Builder
 	_ = goModTemplate.Execute(&b, map[string]string{
-		"ModulePath": m.ModulePath,
-		"Replace":    replace,
+		"ModulePath":        m.ModulePath,
+		"FrameworkVersion":  frameworkVersion,
+		"Replace":           replace,
 	})
 	return []byte(b.String())
 }
@@ -191,13 +231,16 @@ func discoverFrameworkPath(appDir string) string {
 	}
 }
 
-func printInitSummary(dir string, m *manifest, replace string) {
+func printInitSummary(dir string, m *manifest, replace, frameworkVersion string) {
 	println("Created", dir+"/")
 	println("  → go.mod        (module " + m.ModulePath + ")")
+	if strings.Contains(frameworkVersion, "TODO") {
+		println("  → framework version: " + frameworkVersion)
+	} else {
+		println("  → framework version: " + frameworkVersion)
+	}
 	if replace != "" {
 		println("  → replace github.com/orjanda-framework/orjanda => " + replace)
-	} else {
-		println("  → note: set a go.mod replace directive (or ORJANDA_FRAMEWORK_PATH) so the framework resolves locally")
 	}
 	println("  → main.go, app.go (Documents are registered in app.go; `new document` keeps it in sync)")
 	println("  → orjanda.yaml  (dev defaults: env: development, sqlite, :8080)")
