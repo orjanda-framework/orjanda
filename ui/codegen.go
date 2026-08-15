@@ -119,10 +119,10 @@ func MarshalInput(reg schema.Registry) ([]byte, error) {
 
 // VerifyCommittedSchema is the node-free half of the generated-output
 // consistency check (REVIEW-2026-08-12 finding 5): the on-disk step-1 payload
-// must be byte-identical to a fresh CodegenInput for reg. `orjanda bench`
-// fails fast on a mismatch so a stale TypeScript client cannot ship unnoticed;
-// the UI test suite uses it as the commit-time gate on the checked-in
-// orjanda-ui/src/generated/schema.json.
+// must be byte-identical to a fresh CodegenInput for reg. Production
+// `orjanda serve` fails fast on a mismatch so a stale TypeScript client cannot
+// ship unnoticed; the UI test suite uses it as the commit-time gate on the
+// checked-in orjanda-ui/src/generated/schema.json.
 func VerifyCommittedSchema(reg schema.Registry, inputPath string) error {
 	if inputPath == "" {
 		inputPath = filepath.Join("orjanda-ui", "src", "generated", "schema.json")

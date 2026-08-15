@@ -64,10 +64,10 @@ func assertTableGone(t *testing.T, db *sqlite.DB, table string) {
 	require.False(t, rows.Next(), "table %q should have been dropped", table)
 }
 
-// TestSchemaDiff_ChangeCountIncludesDrops proves the bench fail-fast gate and
-// `migrate diff`'s no-change check count DropTables as a pending change
-// (finding 9 — previously only CreateTables+AlterTables were counted, so an
-// orphaned table never blocked bench).
+// TestSchemaDiff_ChangeCountIncludesDrops proves the production serve
+// fail-fast gate and `migrate diff`'s no-change check count DropTables as a
+// pending change (finding 9 — previously only CreateTables+AlterTables were
+// counted, so an orphaned table never blocked startup).
 func TestSchemaDiff_ChangeCountIncludesDrops(t *testing.T) {
 	var diff *schema.SchemaDiff
 	assert.Zero(t, diff.ChangeCount(), "nil diff has zero changes")

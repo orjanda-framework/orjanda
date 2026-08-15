@@ -309,9 +309,9 @@ type SchemaDiff struct {
 }
 
 // ChangeCount returns the total number of pending schema changes across all
-// diff categories. Used by the bench fail-fast gate and `migrate diff`'s
-// "no schema changes" check (REVIEW-2026-08-12 finding 9: dropped tables must
-// count).
+// diff categories. Used by the production serve fail-fast gate and
+// `migrate diff`'s "no schema changes" check (REVIEW-2026-08-12 finding 9:
+// dropped tables must count).
 func (d *SchemaDiff) ChangeCount() int {
 	if d == nil {
 		return 0
