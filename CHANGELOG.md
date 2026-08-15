@@ -64,6 +64,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compile time (breaking for any pre-release schema — none exist yet).
 - Agent tool execution now enforces role checks through `perm.Engine` for both
   standard and custom tools.
+- **Deployment model unified behind `ORJANDA_ENV`:** the `bench` command is
+  removed. `orjanda serve` now serves both environments, selected by
+  `ORJANDA_ENV=development|production` (or the new `env` config key, default
+  `development`). `development` preserves the old `serve` behavior —
+  auto-create tables, warn-and-continue on Registry errors, ephemeral JWT
+  secret when unset — while `production` preserves every `bench` safety
+  guarantee: fail-fast on any Registry/migration/codegen error, no auto-create,
+  no admin bootstrap, and a mandatory real `auth.jwt_secret`. `config.Load` is
+  now the single loader for both environments (the dev-only `config.LoadDev` is
+  gone).
+- `orjanda serve` boots a scaffolded app without a configured
+  `auth.jwt_secret` in the `development` environment by generating an ephemeral
+  dev secret (warned on startup; sessions don't survive restart). Production
+  requires a real secret — dev-only convenience, production behavior unchanged.
 
 ### Fixed
 
