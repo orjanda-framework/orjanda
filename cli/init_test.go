@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/orjanda-framework/orjanda/config"
 )
 
 // noopTidy replaces `go mod tidy` in init unit tests so they never shell out.
@@ -259,4 +261,84 @@ func testManifest(t *testing.T, dir string) *manifest {
 		t.Fatalf("parsing manifest: %v", err)
 	}
 	return &m
+}
+
+// TestScaffoldOrjandaYamlDocumentsDevSecret proves the scaffolded orjanda.yaml
+// tells the operator about the dev-secret behavior (golden-path: init →
+// serve must work without a configured secret, while a real secret remains the
+// production requirement).
+func TestScaffoldOrjandaYamlDocumentsDevSecret(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+
+	cfgText := readFile(t, "myapp/orjanda.yaml")
+	if !strings.Contains(cfgText, "jwt_secret") {
+		t.Errorf("scaffolded orjanda.yaml must mention auth.jwt_secret:\n%s", cfgText)
+	}
+	if !strings.Contains(cfgText, "orjanda serve") {
+		t.Errorf("scaffolded orjanda.yaml should reference the serve dev-secret behavior:\n%s", cfgText)
+	}
+	if !strings.Contains(cfgText, "ORJANDA_ENV") {
+		t.Errorf("scaffolded orjanda.yaml should document ORJANDA_ENV:\n%s", cfgText)
+	}
+}
+
+// TestScaffoldedAppConfigEnvServes proves the full golden path at the unit
+// level: a freshly scaffolded app (no jwt_secret) passes config.Load in the
+// development environment (the default `orjanda serve`), and fails in
+// production (ORJANDA_ENV=production).
+func TestScaffoldedAppConfigEnvServes(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	cfg, generated, err := config.Load("myapp/orjanda.yaml")
+	if err != nil {
+		t.Fatalf("Load (development) on scaffolded app: %v", err)
+	}
+	if generated == "" {
+		t.Fatal("scaffolded app has no jwt_secret; development Load must generate one")
+	}
+	if err := config.ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
+		t.Errorf("generated secret invalid: %v", err)
+	}
+
+	t.Setenv("ORJANDA_ENV", config.EnvProduction)
+	if _, _, err := config.Load("myapp/orjanda.yaml"); err == nil {
+		t.Error("config.Load (production) on scaffolded app without a secret must fail (production strictness)")
+	}
+}
+
+// TestScaffoldedExampleDocumentMatchesREADME keeps the README's Getting Started
+// example in sync with the `new document` scaffold: the example struct, Get,
+// and Set must reference only fields the README declares (no unresolved
+// Link targets like the old Employee/LeaveType example).
+func TestScaffoldedExampleDocumentMatchesREADME(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+	t.Chdir("myapp")
+
+	if err := runNewDocument("LeaveRequest", "", false); err != nil {
+		t.Fatalf("runNewDocument: %v", err)
+	}
+
+	doc := readFile(t, "documents/leave_request.go")
+	// The scaffold must not introduce unresolved Link references.
+	if strings.Contains(doc, "schema.Link") || strings.Contains(doc, "link=") {
+		t.Errorf("scaffold must not reference Links the README golden path doesn't define:\n%s", doc)
+	}
+	// The scaffold registers the document and regenerates app.go.
+	appgo := readFile(t, "app.go")
+	if !strings.Contains(appgo, "appdocs.LeaveRequest") {
+		t.Errorf("app.go should register the generated Document:\n%s", appgo)
+	}
 }

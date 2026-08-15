@@ -84,7 +84,7 @@ func (b siteBuilder) newSite(cfg config.Config) (*orjanda.Site, error) {
 // compiles the Registry. Compile errors are returned to the caller; serve is
 // the only command that downgrades them to a warning (TAD §16).
 func (b siteBuilder) loadSite(cfgFile string) (*orjanda.Site, *config.Config, error) {
-	cfg, err := config.Load(cfgFile)
+	cfg, _, err := config.Load(cfgFile)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -154,8 +154,8 @@ func isOrjandaAppDir(dir string) bool {
 }
 
 // tableCreater is a dal.Database that can also create and register its tables.
-// Both concrete dialects implement it; schema management in serve/bench/chat
-// goes through this (TAD §16 serve), while production migrations go through
+// Both concrete dialects implement it; schema management in serve/chat goes
+// through this (TAD §16 development), while production migrations go through
 // the dal.Migrator.
 type tableCreater interface {
 	dal.Database

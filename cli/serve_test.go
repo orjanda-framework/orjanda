@@ -94,15 +94,60 @@ func TestServeRegeneratesCodegenOnHashChange(t *testing.T) {
 	}
 }
 
-// TestBenchFailFastOnStaleCodegen proves bench's codegen gate (TAD §16): a
-// committed payload matching the compiled Registry passes without node; a stale
-// or missing payload fails fast.
-func TestBenchFailFastOnStaleCodegen(t *testing.T) {
+// TestRunServeDevelopmentWithoutJWTSecret proves the golden path end to end at
+// the CLI level: `orjanda init` produces a config that `orjanda serve`
+// (runServe, development env via config.Load) boots with even though
+// auth.jwt_secret is not configured — the exact first-run flow the README
+// documents. The context is pre-canceled so server.Run returns through its ctx
+// path instead of blocking on the port.
+func TestRunServeDevelopmentWithoutJWTSecret(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	t.Chdir(t.TempDir())
+	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+	t.Chdir("myapp")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := runServe(ctx, siteBuilder{}, "orjanda.yaml", 0); err != nil {
+		t.Fatalf("runServe with scaffolded app (no jwt_secret): %v", err)
+	}
+}
+
+// TestRunServeProductionRequiresJWTSecret proves production serve stays strict:
+// it loads via config.Load with ORJANDA_ENV=production and must refuse to
+// start on a scaffolded app without a configured auth.jwt_secret.
+func TestRunServeProductionRequiresJWTSecret(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvProduction)
+	t.Chdir(t.TempDir())
+	if err := runInitScaffold("myapp", "", "", "", noopTidy); err != nil {
+		t.Fatalf("runInitScaffold: %v", err)
+	}
+	t.Chdir("myapp")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := runServe(ctx, siteBuilder{}, "orjanda.yaml", 0)
+	if err == nil {
+		t.Fatal("runServe (production) without auth.jwt_secret must fail (production strictness)")
+	}
+	if !strings.Contains(err.Error(), "auth.jwt_secret") {
+		t.Errorf("runServe (production) error = %q, want it to mention auth.jwt_secret", err)
+	}
+}
+
+// TestProductionCodegenFailFastOnStaleCodegen proves production serve's codegen
+// gate (TAD §16): a committed payload matching the compiled Registry passes
+// without node; a stale or missing payload fails fast.
+func TestProductionCodegenFailFastOnStaleCodegen(t *testing.T) {
 	site := testSite(t)
 	path := filepath.Join(t.TempDir(), "schema.json")
 
-	if err := benchCodegen(site, ui.RegenerateOptions{InputPath: path}); err == nil {
-		t.Fatalf("missing payload must fail bench")
+	if err := productionCodegen(site, ui.RegenerateOptions{InputPath: path}); err == nil {
+		t.Fatalf("missing payload must fail production serve")
 	}
 
 	fresh, err := ui.MarshalInput(site.Registry)
@@ -112,14 +157,26 @@ func TestBenchFailFastOnStaleCodegen(t *testing.T) {
 	if err := os.WriteFile(path, fresh, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := benchCodegen(site, ui.RegenerateOptions{InputPath: path}); err != nil {
-		t.Errorf("fresh payload must pass bench: %v", err)
+	if err := productionCodegen(site, ui.RegenerateOptions{InputPath: path}); err != nil {
+		t.Errorf("fresh payload must pass production serve: %v", err)
 	}
 
 	if err := os.WriteFile(path, []byte(`[{"name":"Stale"}]`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := benchCodegen(site, ui.RegenerateOptions{InputPath: path}); err == nil {
-		t.Errorf("stale payload must fail bench")
+	if err := productionCodegen(site, ui.RegenerateOptions{InputPath: path}); err == nil {
+		t.Errorf("stale payload must fail production serve")
+	}
+}
+
+// TestRootHasNoBenchCmd proves the bench command has been removed: the CLI's
+// root command must not expose it, since production behavior now lives under
+// ORJANDA_ENV=production orjanda serve.
+func TestRootHasNoBenchCmd(t *testing.T) {
+	root := NewRootCmd(nil)
+	for _, c := range root.Commands() {
+		if c.Name() == "bench" {
+			t.Fatal("bench command must be removed; use ORJANDA_ENV=production orjanda serve")
+		}
 	}
 }

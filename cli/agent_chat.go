@@ -55,7 +55,7 @@ func newAgentChatCmd(b siteBuilder) *cobra.Command {
 }
 
 func runAgentChat(ctx context.Context, b siteBuilder, cfgFile, user, model string) error {
-	cfg, err := config.Load(cfgFile)
+	cfg, _, err := config.Load(cfgFile)
 	if err != nil {
 		return err
 	}

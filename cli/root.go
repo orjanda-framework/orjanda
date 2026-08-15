@@ -23,7 +23,6 @@ func NewRootCmd(configure func(*orjanda.Site) error) *cobra.Command {
 		newInitCmd(),
 		newNewCmd(),
 		newServeCmd(b),
-		newBenchCmd(b),
 		newMigrateCmd(b),
 		newConsoleCmd(b),
 		newInstallCmd(b),

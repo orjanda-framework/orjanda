@@ -14,7 +14,7 @@ func newTestCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Run application tests",
-		Long:  "Runs `go test ./...` with ORJANDA_ENV=test, routing orjanda/testing.NewTestSite to an ephemeral SQLite DB (TAD §16/§17).",
+		Long:  "Runs `go test ./...`, routing orjanda/testing.NewTestSite to an ephemeral SQLite DB (TAD §16/§17).",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runTest(cmd.Context(), run)
@@ -32,7 +32,6 @@ func runTest(ctx context.Context, runFilter string) error {
 		args = append(args, "-run", runFilter)
 	}
 	c := exec.CommandContext(ctx, "go", args...)
-	c.Env = append(os.Environ(), "ORJANDA_ENV=test")
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr

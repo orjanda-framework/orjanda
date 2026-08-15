@@ -23,8 +23,8 @@ func newServeCmd(b siteBuilder) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Start the development server",
-		Long:  "Dev server: auto-creates missing tables and warns-and-continues on Registry errors (TAD §16).",
+		Short: "Start the Orjanda site (development or production per ORJANDA_ENV)",
+		Long:  "Starts the HTTP server for the environment selected by ORJANDA_ENV (or the env config key). development (default) auto-creates missing tables, generates an ephemeral JWT secret when none is configured, and warns-and-continues on Registry errors; production fails fast on any Registry, migration, or committed-codegen error and requires a real auth.jwt_secret (TAD §16).",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -45,28 +45,6 @@ func newServeCmd(b siteBuilder) *cobra.Command {
 	return cmd
 }
 
-func newBenchCmd(b siteBuilder) *cobra.Command {
-	var cfgFile string
-
-	cmd := &cobra.Command{
-		Use:   "bench",
-		Short: "Start the Orjanda site (production)",
-		Long:  "Production entrypoint: never auto-creates tables, requires pre-applied migrations, and fails fast on any Registry or migration-drift error (TAD §16).",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			if delegated, err := b.delegateToApp(ctx, "bench", forwardConfig(cfgFile)...); delegated || err != nil {
-				return err
-			}
-			return runBench(ctx, b, cfgFile)
-		},
-	}
-
-	cmd.Flags().StringVar(&cfgFile, "config", "", "path to orjanda.yaml (defaults to orjanda.yaml in cwd)")
-
-	return cmd
-}
-
 // forwardConfig returns the --config args to forward when delegating.
 func forwardConfig(cfgFile string) []string {
 	if cfgFile == "" {
@@ -76,7 +54,7 @@ func forwardConfig(cfgFile string) []string {
 }
 
 func runServe(ctx context.Context, b siteBuilder, cfgFile string, port int) error {
-	cfg, err := config.Load(cfgFile)
+	cfg, generated, err := config.Load(cfgFile)
 	if err != nil {
 		return err
 	}
@@ -89,9 +67,27 @@ func runServe(ctx context.Context, b siteBuilder, cfgFile string, port int) erro
 		return err
 	}
 
+	switch cfg.Env {
+	case config.EnvDevelopment:
+		return serveDevelopment(ctx, site, *cfg, generated)
+	case config.EnvProduction:
+		return serveProduction(ctx, site, *cfg)
+	default:
+		// Unreachable: config.Load validates ORJANDA_ENV.
+		return errf("serve: unsupported ORJANDA_ENV %q", cfg.Env)
+	}
+}
+
+// serveDevelopment is the forgiving environment (TAD §16): warn-and-continue
+// on Registry errors, auto-create missing tables, bootstrap the first admin,
+// and regenerate the TypeScript client.
+func serveDevelopment(ctx context.Context, site *orjanda.Site, cfg config.Config, generated string) error {
+	if generated != "" {
+		slog.Warn("serve: auth.jwt_secret not configured; generated an ephemeral dev secret — sessions will not survive restart (set auth.jwt_secret in orjanda.yaml or ORJANDA_AUTH_JWT_SECRET for persistent sessions)")
+	}
 	if err := site.Compile(); err != nil {
-		// serve is forgiving (TAD §16): warn and continue serving whatever
-		// compiled, rather than refusing to start.
+		// development is forgiving (TAD §16): warn and continue serving
+		// whatever compiled, rather than refusing to start.
 		slog.Warn("serve: registry compile error; starting server anyway", "error", err)
 	} else {
 		serveCodegenPass(ctx, site)
@@ -116,27 +112,23 @@ func runServe(ctx context.Context, b siteBuilder, cfgFile string, port int) erro
 		}
 	}
 
-	slog.Info("orjanda serve", "addr", serveAddr(*cfg), "docs", len(site.Registry.List()))
+	slog.Info("orjanda serve", "env", cfg.Env, "addr", serveAddr(cfg), "docs", len(site.Registry.List()))
 	return server.Run(ctx, site)
 }
 
-func runBench(ctx context.Context, b siteBuilder, cfgFile string) error {
-	cfg, err := config.Load(cfgFile)
-	if err != nil {
-		return err
-	}
-
-	site, err := b.newSite(*cfg)
-	if err != nil {
-		return err
-	}
+// serveProduction is the fail-fast environment (TAD §16): any Registry error,
+// pending schema change, or stale committed frontend codegen aborts startup.
+// Tables are never auto-created and no admin is bootstrapped — production must
+// go through `orjanda migrate up` first. This preserves every safety guarantee
+// of the former `orjanda bench` command.
+func serveProduction(ctx context.Context, site *orjanda.Site, cfg config.Config) error {
 	if err := site.Compile(); err != nil {
-		// bench is fail-fast (TAD §16): no warn-and-continue.
+		// production is fail-fast (TAD §16): no warn-and-continue.
 		return err
 	}
 
 	if hasFrontend() {
-		if err := benchCodegen(site, ui.RegenerateOptions{}); err != nil {
+		if err := productionCodegen(site, ui.RegenerateOptions{}); err != nil {
 			return err
 		}
 	}
@@ -150,7 +142,7 @@ func runBench(ctx context.Context, b siteBuilder, cfgFile string) error {
 				return err
 			}
 			if n := diff.ChangeCount(); n > 0 {
-				return errf("bench: database has %d pending schema change(s) — run `orjanda migrate diff`/`migrate up` before starting", n)
+				return errf("serve: database has %d pending schema change(s) — run `orjanda migrate diff`/`migrate up` before starting", n)
 			}
 		}
 		if tc, ok := site.DB.(tableCreater); ok {
@@ -158,7 +150,7 @@ func runBench(ctx context.Context, b siteBuilder, cfgFile string) error {
 		}
 	}
 
-	slog.Info("orjanda bench", "addr", serveAddr(*cfg), "docs", len(site.Registry.List()))
+	slog.Info("orjanda serve", "env", cfg.Env, "addr", serveAddr(cfg), "docs", len(site.Registry.List()))
 	return server.Run(ctx, site)
 }
 
@@ -175,8 +167,8 @@ func serveAddr(cfg config.Config) string {
 }
 
 // serveCodegenPass runs the TAD §6.3 codegen pass when a frontend tree exists
-// in the working directory. serve is forgiving (TAD §16): failures warn and
-// continue, and an unchanged Registry (content-hash match, TAD §6.3 step 3)
+// in the working directory. development is forgiving (TAD §16): failures warn
+// and continue, and an unchanged Registry (content-hash match, TAD §6.3 step 3)
 // skips the node invocation entirely.
 func serveCodegenPass(ctx context.Context, site *orjanda.Site) {
 	if !hasFrontend() {
@@ -197,12 +189,12 @@ func serveCodegen(ctx context.Context, site *orjanda.Site, opts ui.RegenerateOpt
 	return ui.Regenerate(ctx, opts)
 }
 
-// benchCodegen is bench's fail-fast codegen gate (TAD §16): the committed
-// TAD §6.3 step-1 payload must match the compiled Registry or the deployed
-// TypeScript client is stale. It is node-free — generated output is a
-// build-time artifact embedded via embed.FS (PRD §17.4), so a mismatch is a
-// release-blocking error, not a re-generation trigger.
-func benchCodegen(site *orjanda.Site, opts ui.RegenerateOptions) error {
+// productionCodegen is production serve's fail-fast codegen gate (TAD §16):
+// the committed TAD §6.3 step-1 payload must match the compiled Registry or
+// the deployed TypeScript client is stale. It is node-free — generated output
+// is a build-time artifact embedded via embed.FS (PRD §17.4), so a mismatch is
+// a release-blocking error, not a re-generation trigger.
+func productionCodegen(site *orjanda.Site, opts ui.RegenerateOptions) error {
 	return ui.VerifyCommittedSchema(site.Registry, opts.InputPath)
 }
 
