@@ -141,7 +141,7 @@ was removed from the repo; the HR scenarios in PRD §36–§38 remain the accept
 | Change agent context/planning behavior | PRD §23.4/§27, TAD §11 | `agent/runtime/`, `agent/planner/` | Discovery vs. operation tool split (TAD §11.1) must be preserved |
 | Change approval/safety policy | PRD §28, TAD §12 | `agent/safety/` | `AlwaysRequireApproval` and bulk-limit checks are non-configurable — see TAD §12.1 |
 | Add a REST/RPC endpoint | PRD §14, TAD §3.2 | `api/rest/` or `api/rpc/` | Must go through the same middleware chain: CORS → Auth → RateLimit → Permission |
-| Add a CLI command | PRD §21, TAD §16 | `cli/` + `cmd/orjanda` | Follow the `serve` (dev, forgiving) vs. `bench` (prod, fail-fast) distinction |
+| Add a CLI command | PRD §21, TAD §16 | `cli/` + `cmd/orjanda` | Follow the `ORJANDA_ENV`-selected behavior: `serve` is forgiving in `development` (auto-create, warn-and-continue) and fail-fast in `production` (migrations + codegen required) |
 | Change the Admin UI rendering | PRD §17-18 | `orjanda-ui/src/` | Forms/lists must stay metadata-driven — no hardcoded per-Document UI |
 | Add a test utility | PRD §32, TAD §17 | `testing/` | Extend `orjanda/testing`, don't hand-roll a parallel fixture system |
 | Anything involving multi-tenancy | PRD §30, TAD §15 | `dal/` (`TenantScopedDB`), `auth/` | Stays wired but **inactive** (`MultiTenant: false`) — see §7 below |

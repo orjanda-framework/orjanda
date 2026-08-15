@@ -41,8 +41,9 @@ go build ./...
 ```
 
 > Orjanda is a framework. To exercise it as a user would — scaffolding an
-> application with the CLI, adding Documents, running `orjanda serve` — install
-> the CLI or use it from your checkout: `go run ./cmd/orjanda init myapp`, then
+> application with the CLI, adding Documents, running `ORJANDA_ENV=development
+> orjanda serve` — install the CLI or use it from your checkout:
+> `go run ./cmd/orjanda init myapp`, then
 > `cd myapp && go run <path-to-checkout>/cmd/orjanda serve`. See
 > [README](README.md#getting-started).
 

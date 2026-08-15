@@ -114,8 +114,10 @@ whenever a Document schema changes:
 npm run codegen      # runs node ../orjanda-codegen.mjs
 ```
 
-`orjanda serve` runs a codegen pass on startup and fails if the committed
-`src/generated/schema.json` is stale (`ui/codegen.go`). If you change a
+Development `orjanda serve` runs a codegen pass on startup and regenerates the
+output when the Registry's content hash changes; production
+(`ORJANDA_ENV=production orjanda serve`) instead fails fast when the committed
+`src/generated/schema.json` is stale (`ui/codegen.go`, TAD §16). If you change a
 Document's fields, run codegen and commit the regenerated output **and** the
 rebuilt `dist/` in the same PR — a stale `dist` breaks the Go embed.
 

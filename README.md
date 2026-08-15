@@ -14,10 +14,9 @@ permission rules.
 ```go
 type LeaveRequest struct {
     schema.BaseDocument
-    Employee  schema.Link `oj:"link=Employee,required"`
-    LeaveType schema.Link `oj:"link=LeaveType,required"`
-    Reason    schema.Text `oj:"required"`
-    Approved  bool        `oj:"default=false"`
+    Reason   string `oj:"required"`
+    Status   string `oj:"options=Draft|Submitted|Approved|Rejected,default=Draft"`
+    Approved bool   `oj:"default=false"`
 }
 ```
 
@@ -109,9 +108,9 @@ on top of the framework; you never modify the framework source itself. This is
 the same model as `django-admin startproject` or `bench init` in Frappe.
 
 ```
-1. go install the orjanda CLI     →  you get the orjanda command
-2. orjanda init myapp             →  your new Application (a Go module)
-3. cd myapp && orjanda serve      →  your app's dev server, on :8080
+1. go install the orjanda CLI           →  you get the orjanda command
+2. orjanda init myapp                   →  your new Application (a Go module)
+3. cd myapp && ORJANDA_ENV=development orjanda serve   →  your app's dev server, on :8080
 ```
 
 ### Prerequisites
@@ -141,7 +140,8 @@ cd myapp
 
 `myapp` is *your* project — a new Go module built on top of Orjanda. This
 generates `go.mod`, `main.go`, `app.go`, an `orjanda.yaml` (SQLite dev
-defaults), and a `migrations/` directory, with Orjanda wired in as a dependency.
+defaults, with a commented `auth.jwt_secret` placeholder), and a `migrations/`
+directory, with Orjanda wired in as a dependency.
 
 ### Add a Document
 
@@ -162,10 +162,9 @@ import (
 // LeaveRequest is a LeaveRequest business entity.
 type LeaveRequest struct {
 	schema.BaseDocument
-	Employee  schema.Link `oj:"link=Employee,required"`
-	LeaveType schema.Link `oj:"link=LeaveType,required"`
-	Reason    schema.Text `oj:"required"`
-	Approved  bool        `oj:"default=false"`
+	Reason   string `oj:"required"`
+	Status   string `oj:"options=Draft|Submitted|Approved|Rejected,default=Draft"`
+	Approved bool   `oj:"default=false"`
 }
 
 func (d *LeaveRequest) DocMeta() schema.Meta {
@@ -179,12 +178,10 @@ func (d *LeaveRequest) DocMeta() schema.Meta {
 
 func (d *LeaveRequest) Get(field string) any {
 	switch field {
-	case "Employee":
-		return string(d.Employee)
-	case "LeaveType":
-		return string(d.LeaveType)
 	case "Reason":
-		return string(d.Reason)
+		return d.Reason
+	case "Status":
+		return d.Status
 	case "Approved":
 		return d.Approved
 	}
@@ -193,19 +190,14 @@ func (d *LeaveRequest) Get(field string) any {
 
 func (d *LeaveRequest) Set(field string, value any) orjerrors.Error {
 	switch field {
-	case "Employee":
-		if v, ok := value.(string); ok {
-			d.Employee = schema.Link(v)
-			return nil
-		}
-	case "LeaveType":
-		if v, ok := value.(string); ok {
-			d.LeaveType = schema.Link(v)
-			return nil
-		}
 	case "Reason":
 		if v, ok := value.(string); ok {
-			d.Reason = schema.Text(v)
+			d.Reason = v
+			return nil
+		}
+	case "Status":
+		if v, ok := value.(string); ok {
+			d.Status = v
 			return nil
 		}
 	case "Approved":
@@ -220,16 +212,26 @@ func (d *LeaveRequest) Set(field string, value any) orjerrors.Error {
 
 ### Run it
 
-Still inside your `myapp` directory, start your application's dev server:
+Still inside your `myapp` directory, start your application's server. The
+environment is chosen by `ORJANDA_ENV` (`development` is the default; set it
+explicitly as documented):
 
 ```bash
-orjanda serve
+ORJANDA_ENV=development orjanda serve
 ```
 
-- The dev server compiles the Registry, auto-creates missing tables, and starts
-  on `http://127.0.0.1:8080` (SQLite by default).
+- The development server compiles the Registry, auto-creates missing tables,
+  and starts on `http://127.0.0.1:8080` (SQLite by default).
 - On first run it bootstraps a system administrator (`admin@localhost`) and
   prints a **one-time password** to stdout.
+- When `auth.jwt_secret` is not configured, development `orjanda serve`
+  generates an **ephemeral dev secret** (warns on startup) — fine for local
+  exploration, but set a real secret in `orjanda.yaml` to keep sessions across
+  restarts.
+- For production, run `ORJANDA_ENV=production orjanda serve`: it fails fast on
+  any Registry, migration, or stale-codegen error, never auto-creates tables,
+  and requires a real `auth.jwt_secret` (see the [Configuration](#configuration)
+  section and [TAD §16](docs/ORJANDA-TAD.md)).
 - Open the admin UI at `http://127.0.0.1:8080` — `LeaveRequest` already appears
   in the sidebar with an auto-generated form and list.
 - Open `http://127.0.0.1:8080/agent` to chat with the embedded agent, which can
@@ -260,8 +262,7 @@ REST routes live under `/api/v1/document/{doctype}`; see
 | `orjanda init <name>` | Scaffold a new Application (`go.mod`, `main.go`, `app.go`, `orjanda.yaml`, `migrations/`) |
 | `orjanda new document <name>` | Generate a Document scaffold and register it in `app.go` |
 | `orjanda new module <name>` | Generate a Module scaffold (`documents/hooks/workflows/api/ui`) |
-| `orjanda serve` | Dev server: auto-creates tables, warns-and-continues on Registry errors |
-| `orjanda bench` | Production entrypoint: fails fast on any Registry or migration drift |
+| `orjanda serve` | Start the site. `ORJANDA_ENV` (or the `env` config key) selects the environment: `development` (default) auto-creates tables, warns-and-continues on Registry errors, and generates an ephemeral JWT secret if unset; `production` (`ORJANDA_ENV=production`) fails fast on any Registry, migration, or stale-codegen error and requires a real `auth.jwt_secret` |
 | `orjanda migrate diff` | Generate migration SQL from schema changes |
 | `orjanda migrate up` | Apply pending migrations |
 | `orjanda migrate status` | Show migration status |
@@ -275,11 +276,13 @@ REST routes live under `/api/v1/document/{doctype}`; see
 ## Configuration
 
 Configuration lives in `orjanda.yaml` (Viper), overridable by `ORJANDA_`
-prefixed environment variables: server port/host/CORS, the database driver
-(`postgres` or `sqlite`) and DSN, the required `auth.jwt_secret` (min 32
-characters, via `ORJANDA_AUTH_JWT_SECRET`), and LLM providers (OpenAI,
-Anthropic, and any OpenAI-compatible endpoint) plus agent safety limits. See
-[TAD §1.3](docs/ORJANDA-TAD.md) for the authoritative schema.
+prefixed environment variables: the `env` deployment environment (`development`
+or `production`, via `ORJANDA_ENV`), server port/host/CORS, the database driver
+(`postgres` or `sqlite`) and DSN, the `auth.jwt_secret` JWT signing key (min 32
+characters, via `ORJANDA_AUTH_JWT_SECRET`; development `orjanda serve` generates
+an ephemeral key when it is absent — production requires a real one), and LLM
+providers (OpenAI, Anthropic, and any OpenAI-compatible endpoint) plus agent
+safety limits. See [TAD §1.3](docs/ORJANDA-TAD.md) for the authoritative schema.
 
 ## Documentation
 

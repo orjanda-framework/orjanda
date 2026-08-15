@@ -35,7 +35,7 @@ myapp/
 ├── go.mod           # module + require github.com/orjanda-framework/orjanda
 ├── main.go          # entry point → cli.Main(configure)
 ├── app.go           # registers Documents (kept in sync by `new document`)
-├── orjanda.yaml     # dev defaults: sqlite at :8080
+├── orjanda.yaml     # dev defaults: env: development, sqlite at :8080 (+ commented auth.jwt_secret)
 ├── migrations/      # Goose migration files (written by `migrate diff`)
 └── .orjanda.json    # CLI manifest recording generated Documents
 ```
@@ -50,8 +50,6 @@ myapp/
 `new document` writes `documents/{snake_case}.go` and registers it in `app.go`:
 
 ```bash
-orjanda new document Department
-orjanda new document Employee
 orjanda new document LeaveRequest
 ```
 
@@ -69,39 +67,55 @@ import (
 
 type LeaveRequest struct {
 	schema.BaseDocument
-	Employee  schema.Link     `oj:"link=Employee,required,label=Employee"`
-	FromDate  schema.Date     `oj:"required,label=From Date"`
-	ToDate    schema.Date     `oj:"required,label=To Date"`
-	Reason    string          `oj:"required,label=Reason"`
-	Balance   schema.Currency `oj:"precision=2,label=Balance"`
-	Status    string          `oj:"options=Draft|Submitted|Approved|Rejected,default=Draft"`
+	Reason   string `oj:"required"`
+	Status   string `oj:"options=Draft|Submitted|Approved|Rejected,default=Draft"`
+	Approved bool   `oj:"default=false"`
 }
 
 func (d *LeaveRequest) DocMeta() schema.Meta {
 	return schema.Meta{
 		Name:        "LeaveRequest",
-		Module:      "Leave",
 		Submittable: true,
 		Description: "Employee leave request",
-		Permissions: []schema.DocPermission{
-			{Role: "Employee", Read: true, Create: true, Match: schema.OwnerMatch},
-			{Role: "HR Manager", Read: true, Write: true, Create: true, Delete: true},
-		},
 	}
 }
 
 func (d *LeaveRequest) Get(field string) any {
+	switch field {
+	case "Reason":
+		return d.Reason
+	case "Status":
+		return d.Status
+	case "Approved":
+		return d.Approved
+	}
 	return d.BaseDocument.Get(field)
 }
 
 func (d *LeaveRequest) Set(field string, value any) orjerrors.Error {
+	switch field {
+	case "Reason":
+		if v, ok := value.(string); ok {
+			d.Reason = v
+			return nil
+		}
+	case "Status":
+		if v, ok := value.(string); ok {
+			d.Status = v
+			return nil
+		}
+	case "Approved":
+		if v, ok := value.(bool); ok {
+			d.Approved = v
+			return nil
+		}
+	}
 	return d.BaseDocument.Set(field, value)
 }
 ```
 
-`Link` fields reference another Document (a `Department` or `Employee` row);
-`ChildTable` fields (`[]MyChild`) declare child records; see the full tag
-reference in TAD §2.1.
+`Link` fields reference another Document; `ChildTable` fields (`[]MyChild`)
+declare child records; see the full tag reference in TAD §2.1.
 
 ## 3. Create and apply migrations
 
@@ -120,8 +134,11 @@ Destructive changes (dropped columns/tables) are gated behind
 
 ## 4. Run the server
 
+`orjanda serve` starts the site in the environment selected by `ORJANDA_ENV`
+(or the `env` config key, default `development`):
+
 ```bash
-orjanda serve
+ORJANDA_ENV=development orjanda serve
 ```
 
 On first run it prints a one-time bootstrap credential:
@@ -131,8 +148,14 @@ bootstrapped system administrator
 admin password: <16 random characters>
 ```
 
-The dev server auto-creates missing tables and is forgiving of Registry errors
-(PRD §21 / TAD §16). Open the **admin UI**:
+The development server auto-creates missing tables and is forgiving of Registry
+errors (PRD §21 / TAD §16). If `auth.jwt_secret` is not set, it generates an
+ephemeral dev secret and warns on startup (sessions won't survive a restart) —
+uncomment `auth.jwt_secret` in `orjanda.yaml` with a ≥ 32-character value to
+keep them. For production behavior use `ORJANDA_ENV=production orjanda serve`:
+it never auto-creates tables, requires pre-applied migrations, and fails fast on
+any Registry, migration, or stale-codegen error (TAD §16).
+Open the **admin UI**:
 
 - **http://localhost:8080/** — the embedded React admin UI (SPA). Log in as
   `admin@localhost` with the printed password. Every Document gets a
@@ -153,7 +176,7 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
 curl -s -X POST http://localhost:8080/api/v1/document/leave_request \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"employee":"EMPLOYEE_ID","from_date":"2026-09-01","to_date":"2026-09-05","reason":"Vacation"}'
+  -d '{"reason":"Vacation","status":"Submitted"}'
 
 # 3. List documents of a type
 curl -s http://localhost:8080/api/v1/document/leave_request \
