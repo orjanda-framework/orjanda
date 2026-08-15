@@ -2,6 +2,12 @@
 # See TAD §1.3 for the authoritative schema.
 # Environment variables with the ORJANDA_ prefix override any value here.
 
+# Deployment environment: development (default) or production.
+# Also settable via ORJANDA_ENV=production (TAD §16). Production is fail-fast:
+# it requires a real auth.jwt_secret, pre-applied migrations, and committed
+# frontend codegen.
+env: development
+
 server:
   port: 8080
   host: "0.0.0.0"

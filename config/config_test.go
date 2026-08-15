@@ -60,9 +60,13 @@ func TestLoadExampleYAML(t *testing.T) {
 	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 	path := writeYAML(t, exampleYAML)
 
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Env != config.EnvDevelopment {
+		t.Errorf("Env = %q, want default %q", cfg.Env, config.EnvDevelopment)
 	}
 
 	// Server
@@ -125,7 +129,7 @@ func TestEnvVarOverride(t *testing.T) {
 	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 
 	path := writeYAML(t, exampleYAML)
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -145,7 +149,7 @@ func TestAnthropicEnvOverride(t *testing.T) {
 	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 
 	path := writeYAML(t, exampleYAML)
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -160,18 +164,22 @@ func TestAnthropicEnvOverride(t *testing.T) {
 }
 
 // TestDefaults verifies that Load("") returns sensible defaults when no file
-// or environment overrides are present.
+// or environment overrides are present, including the default environment.
 func TestDefaults(t *testing.T) {
 	// Unset env vars that other tests might have set (t.Setenv is cleaned up
 	// automatically by the testing package, but be explicit here).
+	t.Setenv("ORJANDA_ENV", "")
 	t.Setenv("ORJANDA_OPENAI_API_KEY", "")
 	t.Setenv("ORJANDA_ANTHROPIC_API_KEY", "")
 	// The JWT secret is required (no default), so supply it via env.
 	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "defaults-test-jwt-secret-0123456789")
 
-	cfg, err := config.Load("")
+	cfg, _, err := config.Load("")
 	if err != nil {
 		t.Fatalf("Load(\"\") error = %v", err)
+	}
+	if cfg.Env != config.EnvDevelopment {
+		t.Errorf("default Env = %q, want %q", cfg.Env, config.EnvDevelopment)
 	}
 	if cfg.Server.Port != 8080 {
 		t.Errorf("default Server.Port = %d, want 8080", cfg.Server.Port)
@@ -201,7 +209,7 @@ llm:
       structured_output: false
 `
 	path := writeYAML(t, yaml)
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -240,7 +248,7 @@ database:
   dsn: "mysql://..."
 `
 	path := writeYAML(t, badYAML)
-	_, err := config.Load(path)
+	_, _, err := config.Load(path)
 	if err == nil {
 		t.Fatal("Load() with driver=mysql expected error, got nil")
 	}
@@ -255,16 +263,18 @@ database:
   driver: "sqlite"
 `
 	path := writeYAML(t, badYAML)
-	_, err := config.Load(path)
+	_, _, err := config.Load(path)
 	if err == nil {
 		t.Fatal("Load() with port=99999 expected error, got nil")
 	}
 }
 
-// TestMissingJWTSecret verifies that config.Load fails fast when the JWT
-// signing secret is not configured — regression for REVIEW-2026-08-12 finding
-// 1, where a missing secret silently fell back to a guessable host-derived key.
-func TestMissingJWTSecret(t *testing.T) {
+// TestMissingJWTSecretProduction verifies that config.Load fails fast in
+// production when the JWT signing secret is not configured — regression for
+// REVIEW-2026-08-12 finding 1, where a missing secret silently fell back to a
+// guessable host-derived key. Production never generates a secret.
+func TestMissingJWTSecretProduction(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvProduction)
 	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 	path := writeYAML(t, `server:
   port: 8080
@@ -272,17 +282,19 @@ func TestMissingJWTSecret(t *testing.T) {
 database:
   driver: "sqlite"
 `)
-	_, err := config.Load(path)
+	_, _, err := config.Load(path)
 	if err == nil {
-		t.Fatal("Load() without auth.jwt_secret expected error, got nil")
+		t.Fatal("Load() without auth.jwt_secret in production expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "auth.jwt_secret") {
 		t.Errorf("Load() error = %q, want it to mention auth.jwt_secret", err)
 	}
 }
 
-// TestWeakJWTSecret verifies that short/guessable secrets are rejected.
-func TestWeakJWTSecret(t *testing.T) {
+// TestWeakJWTSecretProduction verifies that short/guessable secrets are
+// rejected in production.
+func TestWeakJWTSecretProduction(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvProduction)
 	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
 	const yaml = `
 auth:
@@ -291,9 +303,9 @@ database:
   driver: "sqlite"
 `
 	path := writeYAML(t, yaml)
-	_, err := config.Load(path)
+	_, _, err := config.Load(path)
 	if err == nil {
-		t.Fatal("Load() with a weak auth.jwt_secret expected error, got nil")
+		t.Fatal("Load() with a weak auth.jwt_secret in production expected error, got nil")
 	}
 }
 
@@ -305,11 +317,193 @@ func TestJWTSecretEnvOverride(t *testing.T) {
 	t.Setenv("ORJANDA_AUTH_JWT_SECRET", want)
 
 	path := writeYAML(t, exampleYAML)
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if cfg.Auth.JWTSecret != want {
 		t.Errorf("Auth.JWTSecret = %q, want %q (env override not applied)", cfg.Auth.JWTSecret, want)
+	}
+}
+
+// TestDevelopmentGeneratesEphemeralSecret proves the development fallback: with
+// no auth.jwt_secret configured, Load in the development environment succeeds,
+// substitutes a cryptographically strong generated secret, and reports it via
+// the second return value so the caller can warn the operator.
+func TestDevelopmentGeneratesEphemeralSecret(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	path := writeYAML(t, `server:
+  port: 8080
+database:
+  driver: "sqlite"
+`)
+
+	// Production must never silently boot without a secret.
+	t.Setenv("ORJANDA_ENV", config.EnvProduction)
+	if _, _, err := config.Load(path); err == nil {
+		t.Fatal("Load() without auth.jwt_secret in production expected error, got nil")
+	}
+
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	cfg, generated, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if generated == "" {
+		t.Fatal("Load() in development must generate a non-empty secret")
+	}
+	if cfg.Auth.JWTSecret != generated {
+		t.Errorf("cfg.Auth.JWTSecret = %q, want generated %q", cfg.Auth.JWTSecret, generated)
+	}
+	if err := config.ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
+		t.Errorf("generated secret must be valid: %v", err)
+	}
+}
+
+// TestDevelopmentKeepsConfiguredSecret verifies that Load returns "" in
+// development when a valid secret is already configured, so serve never
+// double-substitutes.
+func TestDevelopmentKeepsConfiguredSecret(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	path := writeYAML(t, exampleYAML)
+
+	cfg, generated, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if generated != "" {
+		t.Errorf("Load() generated = %q, want \"\" for a configured secret", generated)
+	}
+	if cfg.Auth.JWTSecret != "example-jwt-secret-0123456789-0123456789" {
+		t.Errorf("configured secret was not preserved: %q", cfg.Auth.JWTSecret)
+	}
+}
+
+// TestDevelopmentShortSecretReplaced verifies that too-short secrets are
+// replaced with a generated one in the development environment.
+func TestDevelopmentShortSecretReplaced(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	path := writeYAML(t, `auth:
+  jwt_secret: "short"
+database:
+  driver: "sqlite"
+`)
+
+	cfg, generated, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if generated == "" {
+		t.Fatal("Load() in development should replace a too-short secret")
+	}
+	if err := config.ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
+		t.Errorf("replaced secret must be valid: %v", err)
+	}
+}
+
+// TestGenerateDevJWTSecret verifies the generator yields strong, unique keys.
+func TestGenerateDevJWTSecret(t *testing.T) {
+	a := config.GenerateDevJWTSecret()
+	b := config.GenerateDevJWTSecret()
+	if a == b {
+		t.Error("GenerateDevJWTSecret() returned the same value twice")
+	}
+	for _, s := range []string{a, b} {
+		if len(s) < config.MinJWTSecretLength {
+			t.Errorf("generated secret length %d < %d", len(s), config.MinJWTSecretLength)
+		}
+		if err := config.ValidateJWTSecret(s); err != nil {
+			t.Errorf("generated secret invalid: %v", err)
+		}
+	}
+}
+
+// TestDevelopmentKeepsNonSecretErrors verifies the development environment does
+// not mask unrelated config errors (e.g. an unsupported driver) just because
+// the JWT check is tolerated.
+func TestDevelopmentKeepsNonSecretErrors(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	path := writeYAML(t, `server:
+  port: 8080
+database:
+  driver: "mysql"
+`)
+	if _, _, err := config.Load(path); err == nil {
+		t.Fatal("Load() with driver=mysql in development expected error, got nil")
+	}
+}
+
+// TestProductionWithSecret verifies production accepts a valid configured
+// secret and never generates one.
+func TestProductionWithSecret(t *testing.T) {
+	t.Setenv("ORJANDA_ENV", config.EnvProduction)
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	path := writeYAML(t, exampleYAML)
+
+	cfg, generated, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if generated != "" {
+		t.Errorf("production generated = %q, want \"\" — production must never generate a secret", generated)
+	}
+	if cfg.Env != config.EnvProduction {
+		t.Errorf("Env = %q, want %q", cfg.Env, config.EnvProduction)
+	}
+}
+
+// TestInvalidEnvFailsFast verifies that any ORJANDA_ENV other than
+// development/production is a hard config error before anything else runs.
+func TestInvalidEnvFailsFast(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	for _, env := range []string{"staging", "test", "prod", "PRODUCTION"} {
+		t.Setenv("ORJANDA_ENV", env)
+		path := writeYAML(t, exampleYAML)
+		_, _, err := config.Load(path)
+		if err == nil {
+			t.Fatalf("Load() with ORJANDA_ENV=%q expected error, got nil", env)
+		}
+		if !strings.Contains(err.Error(), "ORJANDA_ENV") {
+			t.Errorf("Load() error = %q, want it to mention ORJANDA_ENV", err)
+		}
+		if !strings.Contains(err.Error(), config.EnvDevelopment) || !strings.Contains(err.Error(), config.EnvProduction) {
+			t.Errorf("Load() error = %q, want it to list supported values", err)
+		}
+	}
+}
+
+// TestEnvVarOverridesYamlEnv verifies ORJANDA_ENV beats the env key in the
+// config file, and that the yaml env key alone selects the environment.
+func TestEnvVarOverridesYamlEnv(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+
+	// yaml says production, env says development → env wins.
+	t.Setenv("ORJANDA_ENV", config.EnvDevelopment)
+	yamlProd := `env: production
+auth:
+  jwt_secret: "production-yaml-secret-0123456789-0123456789"
+database:
+  driver: "sqlite"
+`
+	cfg, _, err := config.Load(writeYAML(t, yamlProd))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Env != config.EnvDevelopment {
+		t.Errorf("Env = %q, want %q (env var must override yaml)", cfg.Env, config.EnvDevelopment)
+	}
+
+	// No env var → yaml env key applies.
+	t.Setenv("ORJANDA_ENV", "")
+	cfg, _, err = config.Load(writeYAML(t, yamlProd))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Env != config.EnvProduction {
+		t.Errorf("Env = %q, want %q from yaml", cfg.Env, config.EnvProduction)
 	}
 }

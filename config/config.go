@@ -1,10 +1,36 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/viper"
+)
+
+// Deployment environments. Only these two values are accepted for the "env"
+// config key / ORJANDA_ENV environment variable (TAD §16).
+const (
+	// EnvDevelopment is the default environment. It is the local-first
+	// configuration: forgiving Registry compile (warn-and-continue), missing
+	// tables auto-created, an ephemeral JWT secret generated when none is
+	// configured, and an admin bootstrapped on first run.
+	EnvDevelopment = "development"
+
+	// EnvProduction is the fail-fast environment: any Registry error, pending
+	// schema migration, or stale committed frontend codegen aborts startup,
+	// and a valid persistent auth.jwt_secret is mandatory.
+	EnvProduction = "production"
+
+	// EnvDefault is the value used when neither the env config key nor
+	// ORJANDA_ENV is set. Development matches the framework's dev-first model:
+	// the former `orjanda serve` command was always a dev server, a bare
+	// application binary still defaults to serving (cli/main.go), and the
+	// scaffolded orjanda.yaml ships dev defaults. Production is explicit
+	// opt-in via ORJANDA_ENV=production, exactly as it used to be explicit
+	// opt-in via the former `orjanda bench` command.
+	EnvDefault = EnvDevelopment
 )
 
 // Config is the root configuration object. It is populated by Load() from
@@ -14,6 +40,9 @@ import (
 //
 // See TAD §1.3 for the authoritative schema.
 type Config struct {
+	// Env selects the deployment environment: EnvDevelopment or EnvProduction.
+	// Default: EnvDevelopment. Set via orjanda.yaml (env) or ORJANDA_ENV.
+	Env      string         `mapstructure:"env"`
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Auth     AuthConfig     `mapstructure:"auth"`
@@ -122,6 +151,8 @@ type LLMSafetyConfig struct {
 // defaults sets the Viper defaults that match the TAD §1.3 example config.
 // These are applied before any file or environment override.
 func setDefaults(v *viper.Viper) {
+	v.SetDefault("env", EnvDefault)
+
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.cors_origins", []string{"*"})
@@ -147,13 +178,24 @@ func setDefaults(v *viper.Viper) {
 // Environment variable names are derived from Viper keys by uppercasing and
 // replacing dots with underscores, then prepending "ORJANDA_". For example,
 // the key "llm.providers.openai.api_key" maps to
-// ORJANDA_LLM_PROVIDERS_OPENAI_API_KEY.
+// ORJANDA_LLM_PROVIDERS_OPENAI_API_KEY. The env key maps to ORJANDA_ENV.
+//
+// The deployment environment (env / ORJANDA_ENV) decides how the JWT signing
+// secret is handled (TAD §16):
+//   - development: a missing or too-short auth.jwt_secret is tolerated — a
+//     fresh random secret is generated in its place and returned as the second
+//     result. The generated secret is ephemeral; tokens signed with it are
+//     invalidated on restart, which is acceptable for local development but
+//     never for production. When the configured secret is already valid, the
+//     returned string is "".
+//   - production: a missing or too-short auth.jwt_secret is a hard error and
+//     no secret is generated.
 //
 // Load satisfies the Phase 0 completion criterion:
 //   - Correctly parses the example orjanda.yaml from TAD §1.3.
 //   - Env-var override verified for at least one nested key
 //     (ORJANDA_OPENAI_API_KEY maps to llm.providers.openai.api_key).
-func Load(cfgFile string) (*Config, error) {
+func Load(cfgFile string) (*Config, string, error) {
 	v := viper.New()
 
 	setDefaults(v)
@@ -162,6 +204,10 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetEnvPrefix("ORJANDA")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+
+	// The deployment environment is explicitly bound to ORJANDA_ENV so the
+	// value reaches Unmarshal even before any config file is read.
+	_ = v.BindEnv("env", "ORJANDA_ENV")
 
 	// Convenience alias: ORJANDA_OPENAI_API_KEY → llm.providers.openai.api_key
 	// This matches the ${ORJANDA_OPENAI_API_KEY} interpolation in TAD §1.3.
@@ -175,20 +221,47 @@ func Load(cfgFile string) (*Config, error) {
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
 		if err := v.ReadInConfig(); err != nil {
-			return nil, fmt.Errorf("config: reading %q: %w", cfgFile, err)
+			return nil, "", fmt.Errorf("config: reading %q: %w", cfgFile, err)
 		}
 	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("config: unmarshal: %w", err)
+		return nil, "", fmt.Errorf("config: unmarshal: %w", err)
 	}
 
 	if err := validate(&cfg); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return &cfg, nil
+	generated := ""
+	switch cfg.Env {
+	case EnvDevelopment:
+		if err := ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
+			generated = GenerateDevJWTSecret()
+			cfg.Auth.JWTSecret = generated
+		}
+	case EnvProduction:
+		if err := ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
+			return nil, "", fmt.Errorf("config: %w", err)
+		}
+	default:
+		// Unreachable: validate() rejects any other env value.
+		return nil, "", fmt.Errorf("config: unsupported ORJANDA_ENV %q", cfg.Env)
+	}
+
+	return &cfg, generated, nil
+}
+
+// GenerateDevJWTSecret returns a cryptographically random signing key of at
+// least MinJWTSecretLength bytes (base64-URL encoded), intended only for
+// ephemeral local development secrets.
+func GenerateDevJWTSecret() string {
+	b := make([]byte, MinJWTSecretLength)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("dev-only-%d-bytes", MinJWTSecretLength)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // ValidateJWTSecret returns an error unless secret is a strong JWT signing key.
@@ -205,7 +278,19 @@ func ValidateJWTSecret(secret string) error {
 }
 
 // validate checks that the config values are self-consistent after loading.
+// The env key must be one of the two documented environments (TAD §16), and
+// the auth.jwt_secret rule is enforced separately by Load so development and
+// production can differ on exactly that one point.
 func validate(cfg *Config) error {
+	switch cfg.Env {
+	case EnvDevelopment, EnvProduction:
+		// valid
+	case "":
+		// default was not applied — should not happen (setDefaults sets env)
+		return fmt.Errorf("config: env must not be empty")
+	default:
+		return fmt.Errorf("config: ORJANDA_ENV %q is not supported; choose %q or %q", cfg.Env, EnvDevelopment, EnvProduction)
+	}
 	switch cfg.Database.Driver {
 	case "postgres", "sqlite":
 		// valid
@@ -217,9 +302,6 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("config: server.port %d is out of range [1, 65535]", cfg.Server.Port)
-	}
-	if err := ValidateJWTSecret(cfg.Auth.JWTSecret); err != nil {
-		return fmt.Errorf("config: %w", err)
 	}
 	return nil
 }
