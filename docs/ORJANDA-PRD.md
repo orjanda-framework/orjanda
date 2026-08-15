@@ -1082,12 +1082,11 @@ func main() {
 orjanda init <app-name>          # Scaffold a new Orjanda application
 orjanda new document <name>      # Generate a Document scaffold
 orjanda new module <name>        # Generate a Module scaffold
-orjanda serve                    # Start the development server
+orjanda serve                    # Start the site (development by default)
 orjanda migrate diff             # Generate migration from schema changes
 orjanda migrate up               # Apply pending migrations
 orjanda migrate status           # Show migration status
 orjanda console                  # Interactive REPL with site context
-orjanda bench                    # Run the Orjanda site (production)
 orjanda install <app>            # Install an application
 orjanda uninstall <app>          # Uninstall an application
 orjanda test                     # Run application tests
@@ -1096,12 +1095,19 @@ orjanda registry list            # List all registered Documents
 orjanda registry describe <doc>  # Show full schema for a Document
 ```
 
+The `ORJANDA_ENV` environment variable (or the `env` config key) selects the
+deployment environment: `development` (default) or `production`. Production is
+fail-fast — `ORJANDA_ENV=production orjanda serve` never auto-creates tables,
+requires pre-applied migrations and a valid `auth.jwt_secret`, and refuses to
+start on any Registry or committed-codegen error. There is no separate
+"production command"; the former `bench` command was removed (TAD §16).
+
 ### 21.2 Developer Workflow
 
 1. `orjanda init my-erp` — scaffolds a new site with `go.mod`, `main.go`, and core application.
 2. `orjanda new document Employee` — generates `documents/employee.go` with a starter struct.
 3. Developer edits the struct, adds fields, annotations, and `DocMeta()`.
-4. `orjanda serve` — starts the dev server, compiles the Registry, auto-creates tables if needed.
+4. `orjanda serve` — starts the server in the `ORJANDA_ENV` environment (development by default), compiles the Registry, auto-creates tables if needed.
 5. Developer opens `http://localhost:8080` — admin UI shows Employee in the sidebar.
 6. Developer opens `http://localhost:8080/agent` — agent can already query/create Employees.
 7. `orjanda migrate diff` — generates migration SQL for production deployment.

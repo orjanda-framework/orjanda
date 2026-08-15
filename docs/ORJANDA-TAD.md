@@ -1041,18 +1041,17 @@ Formalizes PRD §21 (CLI and Developer Experience), which listed commands withou
 | `orjanda init <name>` | Scaffolds `go.mod` + `main.go` importing `orjanda-core` | `--module` (Go module path), `--dir` (destination directory; defaults to the app name) |
 | `orjanda new document <name>` | Writes `documents/{snake}.go` from a `text/template` scaffold | `--module`, `--submittable` |
 | `orjanda new module <name>` | Creates `modules/{name}/{documents,hooks,workflows,api,ui}/` | — |
-| `orjanda serve` | `orjanda.NewSite` → `Registry.Compile` → dev-only auto-`CreateTable` for missing tables → `server.Run`; Registry compile errors **warn and continue** serving unaffected Documents | `--port`, `--config` |
+| `orjanda serve` | `orjanda.NewSite` → `Registry.Compile` → `server.Run`, environment selected by `ORJANDA_ENV` (or the `env` config key, default `development`). **development**: dev-only auto-`CreateTable` for missing tables, Registry compile errors **warn and continue** serving unaffected Documents, first-run admin bootstrap; when `auth.jwt_secret` is unset/too short, `config.Load` substitutes an ephemeral random secret (warned on startup, invalidated on restart). **production** (`ORJANDA_ENV=production`): no auto-create, requires pre-applied migrations, `Registry.Compile` failure is **fatal** (not warn-and-continue), committed frontend codegen is verified, and a valid persistent `auth.jwt_secret` is mandatory | `--port`, `--config` |
 | `orjanda migrate diff` | `dal.Migrator.Diff` + `Write` (§14) | `--allow-destructive`, `--dialect` |
 | `orjanda migrate up` | `dal.Migrator.Up` | `--dir` |
 | `orjanda migrate status` | `dal.Migrator.Status` | — |
 | `orjanda console` | REPL wrapping the constructed `*orjanda.Site` (Go-expression evaluator) | — |
-| `orjanda bench` | Production entrypoint: no auto-create, requires pre-applied migrations, `Registry.Compile` failure is **fatal** (not warn-and-continue) | `--config` |
 | `orjanda install <app>` / `uninstall <app>` | `app.Installable` / `Uninstallable` lifecycle hooks (§7) | `--drop-tables` (uninstall only) |
-| `orjanda test` | `go test ./...` with `ORJANDA_ENV=test`, routing `orjanda/testing.NewTestSite` (§17) to an ephemeral SQLite DB | `-run` (passthrough) |
+| `orjanda test` | `go test ./...`, routing `orjanda/testing.NewTestSite` (§17) to an ephemeral SQLite DB | `-run` (passthrough) |
 | `orjanda agent chat` | Terminal-mode `agent.Runtime.Execute` loop against the local site; prints `tool_start`/`tool_end` inline instead of over the WebSocket (§6.2) | `--user` (impersonate) |
 | `orjanda registry list` / `describe <doc>` | `schema.Registry.List()` / `Get()`, pretty-printed; `--json` feeds the TypeScript codegen pipeline (§6.3) | `--json` |
 
-`serve` vs. `bench` is the concrete distinction behind PRD §21.1's implied dev/production split: `serve` favors fast iteration (auto-create, warn-and-continue on schema errors), `bench` favors fail-fast production safety (refuses to start on any Registry or migration-drift error).
+`ORJANDA_ENV` (or the `env` config key) selects the deployment environment; the former `bench` command has been removed. This is the concrete mechanism behind PRD §21.1's dev/production split: `development` (default) favors fast iteration (auto-create, warn-and-continue on schema errors, ephemeral JWT secret), `production` favors fail-fast safety (refuses to start on any Registry, migration-drift, or stale-codegen error, and never generates a secret). A bare Application binary run without arguments defaults to `serve` in development.
 
 ---
 
