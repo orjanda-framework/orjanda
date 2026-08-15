@@ -66,8 +66,7 @@ func (d *childParentDoc) DocMeta() schema.Meta {
 	return schema.Meta{Name: "ChildParent"}
 }
 func (d *childParentDoc) Get(field string) any {
-	switch field {
-	case "Title":
+	if field == "Title" {
 		return d.Title
 	}
 	return d.BaseDocument.Get(field)

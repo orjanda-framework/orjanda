@@ -357,13 +357,16 @@ func TestAgentStreamWebSocket_OriginPolicy(t *testing.T) {
 	expectUpgrade := func(t *testing.T, origin string) {
 		t.Helper()
 		conn, resp, err := dial(t, origin)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			t.Fatalf("origin %q rejected: %v", origin, err)
 		}
 		if resp.StatusCode != http.StatusSwitchingProtocols {
 			t.Fatalf("origin %q: status = %d, want 101", origin, resp.StatusCode)
 		}
-		conn.Close(websocket.StatusNormalClosure, "")
+		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}
 
 	t.Run("no origin passes", func(t *testing.T) { expectUpgrade(t, "") })
@@ -377,8 +380,11 @@ func TestAgentStreamWebSocket_OriginPolicy(t *testing.T) {
 
 	t.Run("cross-origin rejected", func(t *testing.T) {
 		conn, resp, err := dial(t, "http://evil.example")
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err == nil {
-			conn.Close(websocket.StatusNormalClosure, "")
+			_ = conn.Close(websocket.StatusNormalClosure, "")
 			t.Fatal("cross-origin dial succeeded, want 403")
 		}
 		if resp == nil || resp.StatusCode != http.StatusForbidden {
@@ -402,13 +408,16 @@ func TestAgentStreamWebSocket_WildcardOrigin(t *testing.T) {
 		"Authorization": {"Bearer " + token},
 		"Origin":        {"http://evil.example"},
 	}})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("wildcard origin rejected: %v", err)
 	}
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("status = %d, want 101", resp.StatusCode)
 	}
-	conn.Close(websocket.StatusNormalClosure, "")
+	_ = conn.Close(websocket.StatusNormalClosure, "")
 }
 
 // TestAgentStreamWebSocket_ApprovalRoundTrip verifies the TAD §12.3 round trip
@@ -434,9 +443,12 @@ func TestAgentStreamWebSocket_ApprovalRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
 		"Authorization": {"Bearer " + token},
 	}})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -533,9 +545,12 @@ func TestAgentStreamWebSocket_TurnQueueOverflow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
 		"Authorization": {"Bearer " + token},
 	}})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

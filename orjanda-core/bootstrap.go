@@ -70,9 +70,9 @@ func Bootstrap(ctx context.Context, db dal.Database, reg schema.Registry) (strin
 		if qErr != nil {
 			return qErr
 		}
-		if len(roles) > 0 {
-			roleID, _ = roles[0]["id"].(string)
-		} else {
+		if len(roles) == 0 {
+			// Only when the role is missing do we need an id; permission and
+			// UserRole rows reference the role by name (AdminRole).
 			roleID = ulid.Make().String()
 			if _, insErr := tx.Insert(ctx, "Role", map[string]any{
 				"id":         roleID,
