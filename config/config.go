@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -171,9 +172,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("llm.safety.max_bulk_operations", 5)
 }
 
-// Load reads configuration from the supplied file path (pass "" to skip the
-// file and rely on defaults + environment variables) and from ORJANDA_-prefixed
+// Load reads configuration from the supplied file path (pass "" to automatically
+// discover orjanda.yaml in the current directory, or skip the file and rely on
+// defaults + environment variables if not found) and from ORJANDA_-prefixed
 // environment variables, which override file values.
+//
+// When cfgFile is empty, Load first checks for "./orjanda.yaml" in the current
+// working directory and loads it if present. This matches the behavior expected
+// after `orjanda init`, which generates an orjanda.yaml in the app directory.
+// An explicit --config flag takes precedence over automatic discovery.
 //
 // Environment variable names are derived from Viper keys by uppercasing and
 // replacing dots with underscores, then prepending "ORJANDA_". For example,
@@ -223,6 +230,15 @@ func Load(cfgFile string) (*Config, string, error) {
 		if err := v.ReadInConfig(); err != nil {
 			return nil, "", fmt.Errorf("config: reading %q: %w", cfgFile, err)
 		}
+	} else {
+		// Automatic discovery: check for orjanda.yaml in current directory
+		if _, err := os.Stat("orjanda.yaml"); err == nil {
+			v.SetConfigFile("orjanda.yaml")
+			if err := v.ReadInConfig(); err != nil {
+				return nil, "", fmt.Errorf("config: reading orjanda.yaml: %w", err)
+			}
+		}
+		// If orjanda.yaml doesn't exist, proceed with defaults + env vars
 	}
 
 	var cfg Config

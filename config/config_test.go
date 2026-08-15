@@ -507,3 +507,188 @@ database:
 		t.Errorf("Env = %q, want %q from yaml", cfg.Env, config.EnvProduction)
 	}
 }
+
+// TestAutoDiscoverOrjandaYAML verifies that Load("") automatically discovers
+// and loads ./orjanda.yaml when it exists in the current working directory.
+func TestAutoDiscoverOrjandaYAML(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "orjanda.yaml")
+	if err := os.WriteFile(configPath, []byte(exampleYAML), 0o644); err != nil {
+		t.Fatalf("writeYAML: %v", err)
+	}
+
+	// Change to the temp directory where orjanda.yaml exists
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	defer os.Chdir(origDir)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("os.Chdir: %v", err)
+	}
+
+	cfg, _, err := config.Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") error = %v", err)
+	}
+
+	// Verify the config was loaded from orjanda.yaml
+	if cfg.Server.Port != 8080 {
+		t.Errorf("Server.Port = %d, want 8080 (from orjanda.yaml)", cfg.Server.Port)
+	}
+	if cfg.Database.Driver != "postgres" {
+		t.Errorf("Database.Driver = %q, want postgres (from orjanda.yaml)", cfg.Database.Driver)
+	}
+	if cfg.Auth.JWTSecret != "example-jwt-secret-0123456789-0123456789" {
+		t.Errorf("Auth.JWTSecret = %q, want example-jwt-secret-0123456789-0123456789 (from orjanda.yaml)", cfg.Auth.JWTSecret)
+	}
+}
+
+// TestAutoDiscoverMissingYAMLFallsBackToDefaults verifies that Load("")
+// falls back to defaults when orjanda.yaml does not exist in the current
+// directory.
+func TestAutoDiscoverMissingYAMLFallsBackToDefaults(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "defaults-test-jwt-secret-0123456789")
+	t.Setenv("ORJANDA_ENV", "")
+	t.Setenv("ORJANDA_OPENAI_API_KEY", "")
+	t.Setenv("ORJANDA_ANTHROPIC_API_KEY", "")
+
+	// Change to a temp directory with no orjanda.yaml
+	dir := t.TempDir()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	defer os.Chdir(origDir)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("os.Chdir: %v", err)
+	}
+
+	cfg, _, err := config.Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") error = %v", err)
+	}
+
+	// Verify defaults are used
+	if cfg.Env != config.EnvDevelopment {
+		t.Errorf("default Env = %q, want %q", cfg.Env, config.EnvDevelopment)
+	}
+	if cfg.Server.Port != 8080 {
+		t.Errorf("default Server.Port = %d, want 8080", cfg.Server.Port)
+	}
+	if cfg.Database.Driver != "sqlite" {
+		t.Errorf("default Database.Driver = %q, want sqlite", cfg.Database.Driver)
+	}
+}
+
+// TestExplicitConfigOverridesAutoDiscovery verifies that an explicit
+// --config path takes precedence over automatic discovery of orjanda.yaml.
+func TestExplicitConfigOverridesAutoDiscovery(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+
+	dir := t.TempDir()
+	// Create orjanda.yaml in the directory (should be ignored)
+	defaultYAML := `server:
+  port: 9999
+auth:
+  jwt_secret: "default-yaml-secret-0123456789-0123456789"
+database:
+  driver: "sqlite"
+`
+	if err := os.WriteFile(filepath.Join(dir, "orjanda.yaml"), []byte(defaultYAML), 0o644); err != nil {
+		t.Fatalf("writeYAML: %v", err)
+	}
+
+	// Create a different config file
+	explicitConfig := `server:
+  port: 7777
+auth:
+  jwt_secret: "explicit-config-secret-0123456789-0123456789"
+database:
+  driver: "postgres"
+  dsn: "postgres://user:pass@localhost:5432/test"
+`
+	explicitPath := filepath.Join(dir, "orjanda.production.yaml")
+	if err := os.WriteFile(explicitPath, []byte(explicitConfig), 0o644); err != nil {
+		t.Fatalf("writeYAML: %v", err)
+	}
+
+	// Change to the temp directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	defer os.Chdir(origDir)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("os.Chdir: %v", err)
+	}
+
+	// Load with explicit config path
+	cfg, _, err := config.Load(explicitPath)
+	if err != nil {
+		t.Fatalf("Load(explicitPath) error = %v", err)
+	}
+
+	// Verify the explicit config was loaded, not orjanda.yaml
+	if cfg.Server.Port != 7777 {
+		t.Errorf("Server.Port = %d, want 7777 (from explicit config)", cfg.Server.Port)
+	}
+	if cfg.Database.Driver != "postgres" {
+		t.Errorf("Database.Driver = %q, want postgres (from explicit config)", cfg.Database.Driver)
+	}
+	if cfg.Auth.JWTSecret != "explicit-config-secret-0123456789-0123456789" {
+		t.Errorf("Auth.JWTSecret = %q, want explicit-config-secret-0123456789-0123456789 (from explicit config)", cfg.Auth.JWTSecret)
+	}
+}
+
+// TestAutoDiscoverWithOpenAICompatible verifies that auto-discovery works
+// correctly with openai_compatible provider configuration.
+func TestAutoDiscoverWithOpenAICompatible(t *testing.T) {
+	t.Setenv("ORJANDA_AUTH_JWT_SECRET", "")
+	const yaml = `
+auth:
+  jwt_secret: "openai-compatible-test-jwt-secret-0123"
+llm:
+  default_provider: "openai_compatible"
+  providers:
+    openai_compatible:
+      api_key: "local-key"
+      model: "llama3.1"
+      base_url: "http://localhost:11434/v1"
+      max_tokens: 1024
+      auth: "none"
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "orjanda.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("writeYAML: %v", err)
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	defer os.Chdir(origDir)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("os.Chdir: %v", err)
+	}
+
+	cfg, _, err := config.Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") error = %v", err)
+	}
+
+	oc, ok := cfg.LLM.Providers["openai_compatible"]
+	if !ok {
+		t.Fatal("LLM.Providers[openai_compatible] missing")
+	}
+	if oc.BaseURL != "http://localhost:11434/v1" {
+		t.Errorf("BaseURL = %q, want http://localhost:11434/v1", oc.BaseURL)
+	}
+	if oc.APIKey != "local-key" {
+		t.Errorf("APIKey = %q, want local-key", oc.APIKey)
+	}
+	if cfg.LLM.DefaultProvider != "openai_compatible" {
+		t.Errorf("DefaultProvider = %q, want openai_compatible", cfg.LLM.DefaultProvider)
+	}
+}
