@@ -71,7 +71,7 @@ export function useAgent(): AgentChatApi {
   const sendMessage = useCallback(
     (text: string) => {
       setEvents((prev) => [...prev, { type: 'token', content: text }]);
-      send({ type: 'user_message', content: text });
+      send({ type: 'message', text });
     },
     [send],
   );

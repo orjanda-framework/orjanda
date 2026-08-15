@@ -64,6 +64,25 @@ afterEach(() => {
 });
 
 describe('AgentChatPage approval round trip', () => {
+  it('sends a message with correct type and field names', async () => {
+    render(<AgentChatPage />);
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));
+
+    const input = screen.getByPlaceholderText('Message the agent…');
+    const sendButton = screen.getByRole('button', { name: 'Send' });
+    
+    fireEvent.change(input, { target: { value: 'test message' } });
+    fireEvent.click(sendButton);
+
+    await waitFor(() => {
+      const sent = FakeWebSocket.lastSent();
+      expect(sent.length).toBeGreaterThan(0);
+    });
+    const msg = JSON.parse(FakeWebSocket.lastSent()[0]);
+    expect(msg.type).toBe('message');
+    expect(msg.text).toBe('test message');
+  });
+
   it('renders Approve/Deny/Modify and sends an approval_response on Approve', async () => {
     render(<AgentChatPage />);
     await waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));

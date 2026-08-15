@@ -2,49 +2,7 @@
 // codegen pass (npm run codegen) after changing a Document's schema.
 // Field types mirror the agent tool JSON Schema mapping one-for-one (TAD §10.2).
 
-export interface DummyParent {
-  /** ID Required. */
-  id: string;
-  /** Name Required. */
-  name: string;
-  /** Owner */
-  owner?: string;
-  /** Created At */
-  createdAt?: string;
-  /** Updated At */
-  updatedAt?: string;
-  /** Modified By */
-  modifiedBy?: string;
-  /** Doc Status */
-  docStatus?: number;
-  /** Deleted */
-  deleted?: boolean;
-  /** Status */
-  status?: string;
-  /** Target Reference to a DummyTarget document (TAD §10.2). */
-  target?: string;
-  /** Amount */
-  amount?: number;
-}
-
-export interface CreateDummyParent {
-  status?: string;
-  target?: string;
-  amount?: number;
-}
-
-export interface DummyChild {
-  /** ID Required. */
-  id: string;
-  /** Parent ID Required. */
-  parentId: string;
-  /** Idx Required. */
-  idx: number;
-  /** Skill Required. */
-  skill: string;
-}
-
-export interface DummyTarget {
+export interface Role {
   /** ID Required. */
   id: string;
   /** Name */
@@ -61,10 +19,98 @@ export interface DummyTarget {
   docStatus?: number;
   /** Deleted */
   deleted?: boolean;
-  /** Label Required. */
-  label: string;
+  /** Role Name Required. */
+  roleName: string;
 }
 
-export interface CreateDummyTarget {
-  label: string;
+export interface CreateRole {
+  roleName: string;
+}
+
+export interface RolePermission {
+  /** ID Required. */
+  id: string;
+  /** Name */
+  name?: string;
+  /** Owner */
+  owner?: string;
+  /** Created At */
+  createdAt?: string;
+  /** Updated At */
+  updatedAt?: string;
+  /** Modified By */
+  modifiedBy?: string;
+  /** Doc Status */
+  docStatus?: number;
+  /** Deleted */
+  deleted?: boolean;
+  /** Role Reference to a Role document (TAD §10.2). Required. */
+  role: string;
+  /** Doc Type Required. */
+  docType: string;
+  /** Read */
+  read?: boolean;
+  /** Write */
+  write?: boolean;
+  /** Create */
+  create?: boolean;
+  /** Delete */
+  delete?: boolean;
+  /** Submit */
+  submit?: boolean;
+}
+
+export interface CreateRolePermission {
+  role: string;
+  docType: string;
+  read?: boolean;
+  write?: boolean;
+  create?: boolean;
+  delete?: boolean;
+  submit?: boolean;
+}
+
+export interface User {
+  /** ID Required. */
+  id: string;
+  /** Name */
+  name?: string;
+  /** Owner */
+  owner?: string;
+  /** Created At */
+  createdAt?: string;
+  /** Updated At */
+  updatedAt?: string;
+  /** Modified By */
+  modifiedBy?: string;
+  /** Doc Status */
+  docStatus?: number;
+  /** Deleted */
+  deleted?: boolean;
+  /** Email Required. */
+  email: string;
+  /** Full Name Required. */
+  fullName: string;
+  /** Password */
+  password?: string;
+  /** Active */
+  active?: boolean;
+}
+
+export interface CreateUser {
+  email: string;
+  fullName: string;
+  password?: string;
+  active?: boolean;
+}
+
+export interface UserRole {
+  /** ID Required. */
+  id: string;
+  /** Parent ID Required. */
+  parentId: string;
+  /** Idx Required. */
+  idx: number;
+  /** Role Reference to a Role document (TAD §10.2). Required. */
+  role: string;
 }

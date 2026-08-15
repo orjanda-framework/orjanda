@@ -4,22 +4,29 @@
 // permissions summary; the server enforces real per-request checks (PRD §25.1).
 
 import { api } from '../api';
-import type { DummyParent, CreateDummyParent, DummyTarget, CreateDummyTarget } from './types';
+import type { Role, CreateRole, RolePermission, CreateRolePermission, User, CreateUser } from './types';
 
 export const documents = {
-  DummyParent: {
-    list: async (opts?: { q?: string; limit?: number; offset?: number }) => { const qs = new URLSearchParams(); if (opts?.q) qs.set('q', opts.q); if (opts?.limit != null) qs.set('limit', String(opts.limit)); if (opts?.offset != null) qs.set('offset', String(opts.offset)); const s = qs.toString(); return api.get<{ data: DummyParent[]; meta: { total_count: number; limit: number; offset: number } }>('/api/v1/document/DummyParent' + (s ? '?' + s : '')); },
-    get: (id: string) => api.get<DummyParent>('/api/v1/document/DummyParent' + '/' + id),
-    create: (payload: CreateDummyParent) => api.post<DummyParent>('/api/v1/document/DummyParent', payload),
-    update: (id: string, payload: Partial<CreateDummyParent>) => api.patch<DummyParent>('/api/v1/document/DummyParent' + '/' + id, payload),
-    remove: (id: string) => api.delete<void>('/api/v1/document/DummyParent' + '/' + id),
+  Role: {
+    list: async (opts?: { q?: string; limit?: number; offset?: number }) => { const qs = new URLSearchParams(); if (opts?.q) qs.set('q', opts.q); if (opts?.limit != null) qs.set('limit', String(opts.limit)); if (opts?.offset != null) qs.set('offset', String(opts.offset)); const s = qs.toString(); return api.get<{ data: Role[]; meta: { total_count: number; limit: number; offset: number } }>('/api/v1/document/Role' + (s ? '?' + s : '')); },
+    get: (id: string) => api.get<Role>('/api/v1/document/Role' + '/' + id),
+    create: (payload: CreateRole) => api.post<Role>('/api/v1/document/Role', payload),
+    update: (id: string, payload: Partial<CreateRole>) => api.patch<Role>('/api/v1/document/Role' + '/' + id, payload),
+    remove: (id: string) => api.delete<void>('/api/v1/document/Role' + '/' + id),
   },
-  DummyTarget: {
-    list: async (opts?: { q?: string; limit?: number; offset?: number }) => { const qs = new URLSearchParams(); if (opts?.q) qs.set('q', opts.q); if (opts?.limit != null) qs.set('limit', String(opts.limit)); if (opts?.offset != null) qs.set('offset', String(opts.offset)); const s = qs.toString(); return api.get<{ data: DummyTarget[]; meta: { total_count: number; limit: number; offset: number } }>('/api/v1/document/DummyTarget' + (s ? '?' + s : '')); },
-    get: (id: string) => api.get<DummyTarget>('/api/v1/document/DummyTarget' + '/' + id),
-    create: (payload: CreateDummyTarget) => api.post<DummyTarget>('/api/v1/document/DummyTarget', payload),
-    update: (id: string, payload: Partial<CreateDummyTarget>) => api.patch<DummyTarget>('/api/v1/document/DummyTarget' + '/' + id, payload),
-    remove: (id: string) => api.delete<void>('/api/v1/document/DummyTarget' + '/' + id),
+  RolePermission: {
+    list: async (opts?: { q?: string; limit?: number; offset?: number }) => { const qs = new URLSearchParams(); if (opts?.q) qs.set('q', opts.q); if (opts?.limit != null) qs.set('limit', String(opts.limit)); if (opts?.offset != null) qs.set('offset', String(opts.offset)); const s = qs.toString(); return api.get<{ data: RolePermission[]; meta: { total_count: number; limit: number; offset: number } }>('/api/v1/document/RolePermission' + (s ? '?' + s : '')); },
+    get: (id: string) => api.get<RolePermission>('/api/v1/document/RolePermission' + '/' + id),
+    create: (payload: CreateRolePermission) => api.post<RolePermission>('/api/v1/document/RolePermission', payload),
+    update: (id: string, payload: Partial<CreateRolePermission>) => api.patch<RolePermission>('/api/v1/document/RolePermission' + '/' + id, payload),
+    remove: (id: string) => api.delete<void>('/api/v1/document/RolePermission' + '/' + id),
+  },
+  User: {
+    list: async (opts?: { q?: string; limit?: number; offset?: number }) => { const qs = new URLSearchParams(); if (opts?.q) qs.set('q', opts.q); if (opts?.limit != null) qs.set('limit', String(opts.limit)); if (opts?.offset != null) qs.set('offset', String(opts.offset)); const s = qs.toString(); return api.get<{ data: User[]; meta: { total_count: number; limit: number; offset: number } }>('/api/v1/document/User' + (s ? '?' + s : '')); },
+    get: (id: string) => api.get<User>('/api/v1/document/User' + '/' + id),
+    create: (payload: CreateUser) => api.post<User>('/api/v1/document/User', payload),
+    update: (id: string, payload: Partial<CreateUser>) => api.patch<User>('/api/v1/document/User' + '/' + id, payload),
+    remove: (id: string) => api.delete<void>('/api/v1/document/User' + '/' + id),
   },
 };
 
