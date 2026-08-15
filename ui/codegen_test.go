@@ -8,8 +8,30 @@ import (
 	"path/filepath"
 	"testing"
 
+	orjandacore "github.com/orjanda-framework/orjanda/orjanda-core"
+	"github.com/orjanda-framework/orjanda/schema"
 	"github.com/orjanda-framework/orjanda/ui"
 )
+
+// compileCoreRegistry compiles the actual core Registry (User, Role, RolePermission)
+// to match the committed orjanda-ui/src/generated/schema.json output.
+func compileCoreRegistry(t *testing.T) schema.Registry {
+	t.Helper()
+	reg := schema.NewRegistry()
+	if err := reg.Register("core", &orjandacore.User{}); err != nil {
+		t.Fatalf("register User: %v", err)
+	}
+	if err := reg.Register("core", &orjandacore.Role{}); err != nil {
+		t.Fatalf("register Role: %v", err)
+	}
+	if err := reg.Register("core", &orjandacore.RolePermission{}); err != nil {
+		t.Fatalf("register RolePermission: %v", err)
+	}
+	if err := reg.Compile(); err != nil {
+		t.Fatalf("compile core registry: %v", err)
+	}
+	return reg
+}
 
 // TestCommittedCodegenOutputConsistent is the commit-time generated-output
 // consistency check (REVIEW-2026-08-12 finding 5 remediation): the checked-in
@@ -17,7 +39,7 @@ import (
 // produces. schema.json is compared without node; the TypeScript files are
 // regenerated into a scratch dir and byte-compared when node is available.
 func TestCommittedCodegenOutputConsistent(t *testing.T) {
-	reg := compileTestRegistry(t)
+	reg := compileCoreRegistry(t)
 	committedDir := filepath.Join("..", "orjanda-ui", "src", "generated")
 
 	committed, err := os.ReadFile(filepath.Join(committedDir, "schema.json"))
