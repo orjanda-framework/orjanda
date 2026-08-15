@@ -187,13 +187,27 @@ func renderAppGo(m *manifest) []byte {
 }
 
 // orjandaYAMLTemplate is the default dev configuration scaffold.
-const orjandaYAMLTemplate = `server:
+const orjandaYAMLTemplate = `# Deployment environment: development (default) or production.
+# Also settable via ORJANDA_ENV=production. Production is fail-fast: it
+# requires a real auth.jwt_secret, pre-applied migrations, and committed
+# frontend codegen (TAD §16).
+env: development
+
+server:
   host: 127.0.0.1
   port: 8080
 
 database:
   driver: sqlite
   dsn: orjanda.db
+
+auth:
+  # JWT signing key. In development 'orjanda serve' generates an ephemeral
+  # random key when this is absent, so local sessions will not survive a
+  # restart. Set a real key (at least 32 characters) to keep sessions across
+  # restarts; production (ORJANDA_ENV=production) requires it.
+  # Set via env: ORJANDA_AUTH_JWT_SECRET
+  # jwt_secret: change-me-to-a-long-random-string
 `
 
 type docScaffoldData struct {

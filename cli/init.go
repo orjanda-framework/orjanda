@@ -200,11 +200,11 @@ func printInitSummary(dir string, m *manifest, replace string) {
 		println("  → note: set a go.mod replace directive (or ORJANDA_FRAMEWORK_PATH) so the framework resolves locally")
 	}
 	println("  → main.go, app.go (Documents are registered in app.go; `new document` keeps it in sync)")
-	println("  → orjanda.yaml  (dev defaults: sqlite, :8080)")
+	println("  → orjanda.yaml  (dev defaults: env: development, sqlite, :8080)")
 	println("  → migrations/")
 	println()
 	println("Next:")
 	println("  cd " + dir)
 	println("  orjanda new document Department --module=org")
-	println("  orjanda serve")
+	println("  orjanda serve    # ORJANDA_ENV=development|production selects the environment")
 }
