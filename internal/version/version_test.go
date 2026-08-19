@@ -6,9 +6,9 @@ import (
 
 func TestIsRelease(t *testing.T) {
 	tests := []struct {
-		name     string
-		version  string
-		want     bool
+		name    string
+		version string
+		want    bool
 	}{
 		// Clean release versions
 		{"clean tag v1.0.0", "v1.0.0", true},

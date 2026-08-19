@@ -68,7 +68,8 @@ func runInitScaffold(appName, module, replace, dir, frameworkVersion, replaceLoc
 	var effectiveReplace string
 	var effectiveVersion string
 
-	if frameworkVersion != "" {
+	switch {
+	case frameworkVersion != "":
 		// --framework-version takes highest precedence
 		effectiveVersion = frameworkVersion
 		// If --replace-local is also set, use it; otherwise use --replace if set
@@ -77,11 +78,11 @@ func runInitScaffold(appName, module, replace, dir, frameworkVersion, replaceLoc
 		} else if replace != "" {
 			effectiveReplace = replace
 		}
-	} else if replaceLocal != "" {
+	case replaceLocal != "":
 		// --replace-local takes medium precedence
 		effectiveVersion = "v0.0.0"
 		effectiveReplace = replaceLocal
-	} else {
+	default:
 		// Auto-detect from build info (lowest precedence)
 		info := version.Current()
 		if info.IsRelease && info.ModulePath == "github.com/orjanda-framework/orjanda" {
@@ -187,9 +188,9 @@ func tidyAppModule(dir string) error {
 func renderGoMod(m *manifest, frameworkVersion, replace string) []byte {
 	var b strings.Builder
 	_ = goModTemplate.Execute(&b, map[string]string{
-		"ModulePath":        m.ModulePath,
-		"FrameworkVersion":  frameworkVersion,
-		"Replace":           replace,
+		"ModulePath":       m.ModulePath,
+		"FrameworkVersion": frameworkVersion,
+		"Replace":          replace,
 	})
 	return []byte(b.String())
 }
@@ -234,11 +235,7 @@ func discoverFrameworkPath(appDir string) string {
 func printInitSummary(dir string, m *manifest, replace, frameworkVersion string) {
 	println("Created", dir+"/")
 	println("  → go.mod        (module " + m.ModulePath + ")")
-	if strings.Contains(frameworkVersion, "TODO") {
-		println("  → framework version: " + frameworkVersion)
-	} else {
-		println("  → framework version: " + frameworkVersion)
-	}
+	println("  → framework version: " + frameworkVersion)
 	if replace != "" {
 		println("  → replace github.com/orjanda-framework/orjanda => " + replace)
 	}

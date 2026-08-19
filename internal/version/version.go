@@ -1,3 +1,4 @@
+// Package version reads version metadata from the running binary's build info.
 package version
 
 import (

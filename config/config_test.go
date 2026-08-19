@@ -523,7 +523,11 @@ func TestAutoDiscoverOrjandaYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Getwd: %v", err)
 	}
-	defer os.Chdir(origDir)
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("os.Chdir: %v", err)
 	}
@@ -560,7 +564,11 @@ func TestAutoDiscoverMissingYAMLFallsBackToDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Getwd: %v", err)
 	}
-	defer os.Chdir(origDir)
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("os.Chdir: %v", err)
 	}
@@ -619,7 +627,11 @@ database:
 	if err != nil {
 		t.Fatalf("os.Getwd: %v", err)
 	}
-	defer os.Chdir(origDir)
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("os.Chdir: %v", err)
 	}
@@ -668,7 +680,11 @@ llm:
 	if err != nil {
 		t.Fatalf("os.Getwd: %v", err)
 	}
-	defer os.Chdir(origDir)
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("os.Chdir: %v", err)
 	}
