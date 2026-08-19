@@ -1,13 +1,16 @@
-// DocListPage: auto-generated list for any Document from its metadata
-// (PRD §17.3). Columns are the non-hidden fields; search maps to the REST
-// ?q= parameter; row actions are gated by the DocMeta permissions.
-
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { PermissionGuard } from '../core/PermissionGuard';
-import { useDocMeta } from '../core/MetaProvider';
-import { useDocument } from '../core/useDocument';
-import type { RecordData } from '../types';
+import { PermissionGuard } from '@/core/PermissionGuard';
+import { useDocMeta } from '@/core/MetaProvider';
+import { useDocument } from '@/core/useDocument';
+import type { RecordData } from '@/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty';
+import { SearchIcon, PlusIcon, AlertCircleIcon, InboxIcon } from 'lucide-react';
 
 const PAGE_SIZE = 25;
 
@@ -50,108 +53,150 @@ export function DocListPage() {
   }, [load, q]);
 
   if (!meta) {
-    return <p className="text-sm text-slate-500">Unknown Document: {doctype}</p>;
+    return <p className="text-sm text-muted-foreground">Unknown Document: {doctype}</p>;
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900">{doctype}</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{doctype}</h1>
         <PermissionGuard doctype={doctype} action="can_create" fallback={null}>
-          <Link
-            to={`/doc/${doctype}/new`}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
+          <Button render={<Link to={`/doc/${doctype}/new`} />}>
+            <PlusIcon data-icon="inline-start" />
             New {doctype}
-          </Link>
+          </Button>
         </PermissionGuard>
       </div>
 
-      <input
-        type="search"
-        placeholder="Search…"
-        value={q}
-        onChange={(e) => {
-          setQ(e.target.value);
-          setOffset(0);
-        }}
-        className="w-full max-w-sm rounded-md border border-slate-300 px-3 py-2 text-sm"
-      />
+      <div className="relative max-w-sm">
+        <SearchIcon className="absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          placeholder="Search..."
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setOffset(0);
+          }}
+          className="ps-8"
+        />
+      </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {loading && <p className="text-sm text-slate-500">Loading…</p>}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircleIcon data-icon="inline-start" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {loading && (
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {columns.map((c) => (
+                  <TableHead key={c.db_column}>{c.label}</TableHead>
+                ))}
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  {columns.map((c) => (
+                    <TableCell key={c.db_column}>
+                      <Skeleton className="h-4 w-full" />
+                    </TableCell>
+                  ))}
+                  <TableCell />
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {!loading && (
         <>
-          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  {columns.map((c) => (
-                    <th
-                      key={c.db_column}
-                      className="px-4 py-2 text-left font-medium text-slate-600"
-                    >
-                      {c.label}
-                    </th>
-                  ))}
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => (
-                  <tr key={String(row.id)} className="hover:bg-slate-50">
+          {rows.length === 0 ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <InboxIcon />
+                </EmptyMedia>
+                <EmptyTitle>No records</EmptyTitle>
+                <EmptyDescription>
+                  {q ? 'No results match your search.' : 'No records found.'}
+                </EmptyDescription>
+              </EmptyHeader>
+              {q && (
+                <EmptyContent>
+                  <Button variant="outline" onClick={() => setQ('')}>Clear search</Button>
+                </EmptyContent>
+              )}
+            </Empty>
+          ) : (
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
                     {columns.map((c) => (
-                      <td key={c.db_column} className="px-4 py-2 text-slate-800">
-                        {String(row[c.db_column] ?? '')}
-                      </td>
+                      <TableHead key={c.db_column}>{c.label}</TableHead>
                     ))}
-                    <td className="px-4 py-2 text-right">
-                      <Link
-                        to={`/doc/${doctype}/${row.id}`}
-                        className="text-indigo-600 hover:text-indigo-800"
-                      >
-                        View
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={columns.length + 1} className="px-4 py-6 text-center text-slate-400">
-                      No records
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                    <TableHead className="w-[1%]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <TableRow key={String(row.id)}>
+                      {columns.map((c) => (
+                        <TableCell key={c.db_column}>
+                          <span className="truncate">{String(row[c.db_column] ?? '')}</span>
+                        </TableCell>
+                      ))}
+                      <TableCell>
+                        <Button variant="ghost" size="sm" render={<Link to={`/doc/${doctype}/${row.id}`} />}>View</Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
-          <div className="flex items-center gap-4 text-sm text-slate-600">
-            <button
-              disabled={offset === 0}
-              onClick={() => {
-                setOffset(Math.max(0, offset - PAGE_SIZE));
-                load(q, Math.max(0, offset - PAGE_SIZE));
-              }}
-              className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
-            >
-              Prev
-            </button>
-            <span>
-              {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
-            </span>
-            <button
-              disabled={offset + PAGE_SIZE >= total}
-              onClick={() => {
-                setOffset(offset + PAGE_SIZE);
-                load(q, offset + PAGE_SIZE);
-              }}
-              className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
+          {total > 0 && (
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>
+                {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={offset === 0}
+                  onClick={() => {
+                    const newOffset = Math.max(0, offset - PAGE_SIZE);
+                    setOffset(newOffset);
+                    load(q, newOffset);
+                  }}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={offset + PAGE_SIZE >= total}
+                  onClick={() => {
+                    const newOffset = offset + PAGE_SIZE;
+                    setOffset(newOffset);
+                    load(q, newOffset);
+                  }}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

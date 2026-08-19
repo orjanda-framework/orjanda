@@ -1,12 +1,15 @@
-// DocFormPage: auto-generated create/edit form for any Document from its
-// metadata (PRD §17.3). Field editors resolve through the ComponentRegistry;
-// read_only/hidden fields are excluded from the payload (TAD §6.1).
-
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FieldRenderer } from '../components/fields';
-import { useDocMeta } from '../core/MetaProvider';
-import { buildPayload, useDocument } from '../core/useDocument';
+import { FieldRenderer } from '@/components/fields';
+import { useDocMeta } from '@/core/MetaProvider';
+import { buildPayload, useDocument } from '@/core/useDocument';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
+import { AlertCircleIcon } from 'lucide-react';
 
 export function DocFormPage() {
   const { doctype = '', id } = useParams();
@@ -63,55 +66,80 @@ export function DocFormPage() {
   }, []);
 
   if (!meta) {
-    return <p className="text-sm text-slate-500">Unknown Document: {doctype}</p>;
+    return <p className="text-sm text-muted-foreground">Unknown Document: {doctype}</p>;
   }
 
   const fields = meta.fields.filter((f) => !f.hidden);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <h1 className="text-2xl font-semibold text-slate-900">
+    <div className="mx-auto max-w-2xl flex flex-col gap-4">
+      <h1 className="text-2xl font-semibold text-foreground">
         {isEdit ? `Edit ${doctype}` : `New ${doctype}`}
       </h1>
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {loading && <p className="text-sm text-slate-500">Loading…</p>}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircleIcon data-icon="inline-start" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {loading && (
+        <Card>
+          <CardContent>
+            <FieldGroup>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Field key={i}>
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-9 w-full" />
+                </Field>
+              ))}
+            </FieldGroup>
+          </CardContent>
+        </Card>
+      )}
+
       {!loading && (
-        <form onSubmit={onSubmit} className="space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          {fields.map((f) => {
-            const readOnly = f.read_only;
-            return (
-              <div key={f.db_column}>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  {f.label}
-                  {f.required && <span className="ml-1 text-red-500">*</span>}
-                </label>
-                <FieldRenderer
-                  meta={f}
-                  docType={doctype}
-                  value={values[f.db_column]}
-                  onChange={(v) => setValue(f.db_column, v)}
-                  disabled={readOnly}
-                />
-              </div>
-            );
-          })}
-          <div className="flex gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/doc/${doctype}`)}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
+        <Card>
+          <CardContent>
+            <form onSubmit={onSubmit}>
+              <FieldGroup>
+                {fields.map((f) => {
+                  const readOnly = f.read_only;
+                  return (
+                    <Field key={f.db_column}>
+                      <FieldLabel>
+                        {f.label}
+                        {f.required && <span className="text-destructive ms-1">*</span>}
+                      </FieldLabel>
+                      <FieldRenderer
+                        meta={f}
+                        docType={doctype}
+                        value={values[f.db_column]}
+                        onChange={(v) => setValue(f.db_column, v)}
+                        disabled={readOnly}
+                      />
+                    </Field>
+                  );
+                })}
+
+                <div className="flex gap-3 pt-2">
+                  <Button type="submit" disabled={saving}>
+                    {saving && <Spinner data-icon="inline-start" />}
+                    {saving ? 'Saving...' : 'Save'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate(`/doc/${doctype}`)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </FieldGroup>
+            </form>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -1,17 +1,41 @@
-// Shell: the admin layout with a metadata-driven sidebar (PRD §17.2). The
-// sidebar groups Documents by module (from /api/v1/meta) and renders the
-// custom ui.Page registrations under their menu group (from /api/v1/meta/pages).
-
-import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../core/AuthProvider';
-import { useMeta } from '../core/MetaProvider';
+import { useAuth } from '@/core/AuthProvider';
+import { useMeta } from '@/core/MetaProvider';
+import {
+  SidebarProvider,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarTrigger,
+  SidebarSeparator,
+  SidebarInset,
+} from '@/components/ui/sidebar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  LayoutDashboardIcon,
+  MessageSquareIcon,
+  LogOutIcon,
+  ChevronsUpDownIcon,
+} from 'lucide-react';
 
 export function Shell() {
   const { identity, logout } = useAuth();
   const { summaries, pages, loading } = useMeta();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(true);
 
   const groups = new Map<string, typeof summaries>();
   for (const s of summaries) {
@@ -25,82 +49,133 @@ export function Shell() {
     navigate('/login');
   }
 
+  const initials = identity?.name
+    ? identity.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+    : identity?.email?.slice(0, 2).toUpperCase() ?? 'U';
+
   return (
-    <div className="flex min-h-screen bg-slate-100">
-      {open && (
-        <aside className="w-64 shrink-0 border-r border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-4 py-4">
-            <div className="text-lg font-semibold text-slate-900">Orjanda</div>
-            {identity?.email && <div className="truncate text-xs text-slate-500">{identity.email}</div>}
-          </div>
-          <nav className="space-y-1 p-3">
-            <NavLink to="/" className={sidebarClass}>
-              Dashboard
-            </NavLink>
-            <NavLink to="/agent" className={sidebarClass}>
-              Agent Chat
-            </NavLink>
+    <SidebarProvider>
+      <Sidebar>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>
+              <span className="font-semibold">Orjanda</span>
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton render={<NavLink to="/" />}>
+                    <LayoutDashboardIcon />
+                    <span>Dashboard</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton render={<NavLink to="/agent" />}>
+                    <MessageSquareIcon />
+                    <span>Agent Chat</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
 
-            {loading ? (
-              <p className="px-3 py-2 text-xs text-slate-400">Loading…</p>
-            ) : (
-              <>
-                {[...groups.entries()].map(([group, docs]) => (
-                  <div key={group}>
-                    <div className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      {group}
-                    </div>
+          <SidebarSeparator />
+
+          {loading ? (
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <SidebarMenuItem key={i}>
+                      <div className="flex h-8 items-center gap-2 rounded-md px-2">
+                        <Skeleton className="size-4 rounded-md" />
+                        <Skeleton className="h-4 flex-1" />
+                      </div>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ) : (
+            [...groups.entries()].map(([group, docs]) => (
+              <SidebarGroup key={group}>
+                <SidebarGroupLabel>{group}</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
                     {docs.map((d) => (
-                      <NavLink key={d.name} to={`/doc/${d.name}`} className={sidebarClass}>
-                        {d.name}
-                      </NavLink>
+                      <SidebarMenuItem key={d.name}>
+                        <SidebarMenuButton
+                          render={<NavLink to={`/doc/${d.name}`} />}
+                        >
+                          <span>{d.name}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
                     ))}
-                  </div>
-                ))}
-                {pages.length > 0 && (
-                  <div>
-                    <div className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Custom
-                    </div>
-                    {pages.map((p) => (
-                      <NavLink key={p.path} to={p.path} className={sidebarClass}>
-                        {p.title}
-                      </NavLink>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </nav>
-        </aside>
-      )}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            ))
+          )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-          <button
-            onClick={() => setOpen((o) => !o)}
-            className="rounded border border-slate-300 px-2 py-1 text-sm text-slate-600"
-          >
-            {open ? '◀' : '▶'}
-          </button>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-600">{identity?.name ?? identity?.email ?? 'User'}</span>
-            <button onClick={signOut} className="text-sm text-slate-400 hover:text-slate-600">
-              Sign out
-            </button>
-          </div>
+          {!loading && pages.length > 0 && (
+            <>
+              <SidebarSeparator />
+              <SidebarGroup>
+                <SidebarGroupLabel>Custom</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {pages.map((p) => (
+                      <SidebarMenuItem key={p.path}>
+                        <SidebarMenuButton
+                          render={<NavLink to={p.path} />}
+                        >
+                          <span>{p.title}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </>
+          )}
+        </SidebarContent>
+
+        <SidebarSeparator />
+
+        <SidebarFooter>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<SidebarMenuButton />}>
+                  <Avatar className="size-6">
+                    <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                  </Avatar>
+                  <span className="truncate text-sm">
+                    {identity?.name ?? identity?.email ?? 'User'}
+                  </span>
+                  <ChevronsUpDownIcon className="ms-auto text-muted-foreground" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" className="w-[--radix-dropdown-menu-trigger-width]">
+                  <DropdownMenuItem onClick={signOut}>
+                    <LogOutIcon />
+                    <span>Sign out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+      </Sidebar>
+
+      <SidebarInset>
+        <header className="flex h-12 items-center gap-2 border-b px-4">
+          <SidebarTrigger />
+          <Separator orientation="vertical" className="h-4" />
         </header>
         <main className="flex-1 p-6">
           <Outlet />
         </main>
-      </div>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
-}
-
-function sidebarClass({ isActive }: { isActive: boolean }): string {
-  return [
-    'block rounded-md px-3 py-1.5 text-sm',
-    isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50',
-  ].join(' ');
 }

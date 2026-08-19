@@ -68,7 +68,7 @@ describe('AgentChatPage approval round trip', () => {
     render(<AgentChatPage />);
     await waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));
 
-    const input = screen.getByPlaceholderText('Message the agent…');
+    const input = screen.getByPlaceholderText('Message the agent...');
     const sendButton = screen.getByRole('button', { name: 'Send' });
     
     fireEvent.change(input, { target: { value: 'test message' } });

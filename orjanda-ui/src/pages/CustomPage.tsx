@@ -1,10 +1,7 @@
-// Custom pages: Applications may register React components for the `component`
-// field of a ui.Page (PRD §18). Named entries resolve through a simple
-// registry; unregistered components render a placeholder so the page still
-// routes.
-
 import type { ComponentType } from 'react';
 import { useParams } from 'react-router-dom';
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
+import { FileQuestionIcon } from 'lucide-react';
 
 const custom = new Map<string, ComponentType>();
 
@@ -19,12 +16,18 @@ export function CustomPage() {
 
   if (!Comp) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
-        <p className="text-sm text-slate-500">
-          Custom component <code className="font-mono text-slate-700">{componentName}</code> is
-          not registered. Register it via <code className="font-mono text-slate-700">registerCustomComponent</code>.
-        </p>
-      </div>
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <FileQuestionIcon />
+          </EmptyMedia>
+          <EmptyTitle>Component not registered</EmptyTitle>
+          <EmptyDescription>
+            Custom component <code className="font-mono text-foreground">{componentName}</code> is
+            not registered. Register it via <code className="font-mono text-foreground">registerCustomComponent</code>.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
   return <Comp />;

@@ -1,11 +1,17 @@
-// Field renderer components and the default registrations. The Admin UI is
-// metadata-driven (PRD §17.3): every renderer is resolved through the
-// ComponentRegistry so Applications can override defaults per type, per
-// DocType, or per field (PRD §18.2).
-
 import type { ReactNode } from 'react';
-import { ComponentRegistry } from '../../registry';
-import type { FieldMeta } from '../../types';
+import { ComponentRegistry } from '@/registry';
+import type { FieldMeta } from '@/types';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export interface FieldRendererProps {
   meta: FieldMeta;
@@ -15,18 +21,10 @@ export interface FieldRendererProps {
   disabled?: boolean;
 }
 
-function inputClass(disabled?: boolean): string {
-  return [
-    'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500',
-    disabled ? 'bg-slate-100 text-slate-500' : 'bg-white',
-  ].join(' ');
-}
-
 function TextField({ meta, value, onChange, disabled }: FieldRendererProps) {
   return (
-    <input
+    <Input
       type="text"
-      className={inputClass(disabled)}
       value={(value as string) ?? ''}
       disabled={disabled}
       data-field={meta.db_column}
@@ -37,8 +35,7 @@ function TextField({ meta, value, onChange, disabled }: FieldRendererProps) {
 
 function LongTextField({ meta, value, onChange, disabled }: FieldRendererProps) {
   return (
-    <textarea
-      className={inputClass(disabled)}
+    <Textarea
       rows={4}
       value={(value as string) ?? ''}
       disabled={disabled}
@@ -50,10 +47,9 @@ function LongTextField({ meta, value, onChange, disabled }: FieldRendererProps) 
 
 function NumberField({ meta, value, onChange, disabled }: FieldRendererProps) {
   return (
-    <input
+    <Input
       type="number"
       step={meta.type === 'currency' ? '0.01' : undefined}
-      className={inputClass(disabled)}
       value={value == null ? '' : String(value)}
       disabled={disabled}
       data-field={meta.db_column}
@@ -71,22 +67,19 @@ function NumberField({ meta, value, onChange, disabled }: FieldRendererProps) {
 
 function BoolField({ meta, value, onChange, disabled }: FieldRendererProps) {
   return (
-    <input
-      type="checkbox"
-      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+    <Switch
       checked={Boolean(value)}
       disabled={disabled}
       data-field={meta.db_column}
-      onChange={(e) => onChange(e.target.checked)}
+      onCheckedChange={(checked) => onChange(checked)}
     />
   );
 }
 
 function DateField({ meta, value, onChange, disabled }: FieldRendererProps) {
   return (
-    <input
+    <Input
       type={meta.type === 'datetime' ? 'datetime-local' : 'date'}
-      className={inputClass(disabled)}
       value={value != null ? String(value).slice(0, meta.type === 'datetime' ? 16 : 10) : ''}
       disabled={disabled}
       data-field={meta.db_column}
@@ -96,29 +89,33 @@ function DateField({ meta, value, onChange, disabled }: FieldRendererProps) {
 }
 
 function SelectField({ meta, value, onChange, disabled }: FieldRendererProps) {
+  const options = meta.options ?? [];
   return (
-    <select
-      className={inputClass(disabled)}
+    <Select
       value={(value as string) ?? ''}
       disabled={disabled}
-      data-field={meta.db_column}
-      onChange={(e) => onChange(e.target.value)}
+      onValueChange={(val) => onChange(val)}
     >
-      <option value="">—</option>
-      {(meta.options ?? []).map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
-    </select>
+      <SelectTrigger className="w-full">
+        <SelectValue placeholder="Select..." />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {options.map((opt) => (
+            <SelectItem key={opt} value={opt}>
+              {opt}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
 function LinkField({ meta, value, onChange, disabled }: FieldRendererProps) {
   return (
-    <input
+    <Input
       type="text"
-      className={inputClass(disabled)}
       value={(value as string) ?? ''}
       disabled={disabled}
       placeholder={`${meta.link ?? 'target'} reference (ID)`}
@@ -132,12 +129,12 @@ function JsonField({ meta, value, onChange, disabled }: FieldRendererProps) {
   const text =
     value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
   return (
-    <textarea
-      className={inputClass(disabled) + ' font-mono'}
+    <Textarea
       rows={6}
       value={text}
       disabled={disabled}
       data-field={meta.db_column}
+      className="font-mono"
       onChange={(e) => {
         const raw = e.target.value.trim();
         if (raw === '') {
@@ -155,7 +152,8 @@ function JsonField({ meta, value, onChange, disabled }: FieldRendererProps) {
   );
 }
 
-// Built-in default registration (PRD §18.2 "Default" level).
+type ComponentTypeField = (props: FieldRendererProps) => ReactNode;
+
 const DEFAULTS: Array<[string, ComponentTypeField]> = [
   ['string', TextField],
   ['int', NumberField],
@@ -174,18 +172,10 @@ const DEFAULTS: Array<[string, ComponentTypeField]> = [
   ['json', JsonField],
 ];
 
-type ComponentTypeField = (props: FieldRendererProps) => ReactNode;
-
 for (const [type, comp] of DEFAULTS) {
   ComponentRegistry.register(`field:${type}`, comp);
 }
 
-/**
- * FieldRenderer renders one field of a Document using the three-level
- * ComponentRegistry resolution (PRD §18.2). Options-bearing string fields
- * default to a select (Status/options fields); all other fields fall back to
- * the registered type default, then TextField.
- */
 export function FieldRenderer(props: FieldRendererProps): ReactNode {
   const { meta, docType } = props;
   const specific =

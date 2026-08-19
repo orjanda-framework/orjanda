@@ -1,40 +1,79 @@
-// DashboardPage: entry point listing the Documents the identity may read plus
-// a link into the Agent Chat (PRD §17.2, §23).
-
 import { Link } from 'react-router-dom';
-import { useMeta } from '../core/MetaProvider';
+import { useMeta } from '@/core/MetaProvider';
+import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
+import { MessageSquareIcon, AlertCircleIcon, DatabaseIcon } from 'lucide-react';
 
 export function DashboardPage() {
   const { summaries, loading, error } = useMeta();
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
-        <Link
-          to="/agent"
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          Open Agent Chat
-        </Link>
+        <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
+        <Button render={<Link to="/agent" />}>
+          <MessageSquareIcon data-icon="inline-start" />
+          Agent Chat
+        </Button>
       </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {loading && <p className="text-sm text-slate-500">Loading…</p>}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircleIcon data-icon="inline-start" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {!loading &&
-          summaries.map((s) => (
-            <Link
-              key={s.name}
-              to={`/doc/${s.name}`}
-              className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:border-indigo-300 hover:shadow"
-            >
-              <div className="text-sm font-medium text-slate-900">{s.name}</div>
-              <div className="text-sm text-slate-500">{s.description ?? s.title_field}</div>
+      {loading && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {!loading && summaries.length === 0 && (
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <DatabaseIcon />
+            </EmptyMedia>
+            <EmptyTitle>No documents</EmptyTitle>
+            <EmptyDescription>
+              Create a Document to get started.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
+
+      {!loading && summaries.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {summaries.map((s) => (
+            <Link key={s.name} to={`/doc/${s.name}`} className="group block">
+              <Card className="transition-colors group-hover:border-primary/50 group-hover:shadow-md">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm">{s.name}</CardTitle>
+                    {s.module && <Badge variant="secondary">{s.module}</Badge>}
+                  </div>
+                  <CardDescription>
+                    {s.description ?? `Field: ${s.title_field}`}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
             </Link>
           ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

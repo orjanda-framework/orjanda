@@ -1,17 +1,14 @@
-// App: the admin UI route table (PRD §17.2). Routes are metadata-driven for
-// Documents; custom ui.Page routes pass through the component name so
-// Applications can register renderers (PRD §18.2).
-
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
-import { AuthProvider, useAuth } from './core/AuthProvider';
-import { MetaProvider } from './core/MetaProvider';
-import { AgentChatPage } from './pages/AgentChatPage';
-import { CustomPage } from './pages/CustomPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { DocFormPage } from './pages/DocFormPage';
-import { DocListPage } from './pages/DocListPage';
-import { LoginPage } from './pages/LoginPage';
-import { Shell } from './pages/Shell';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { AuthProvider, useAuth } from '@/core/AuthProvider';
+import { MetaProvider } from '@/core/MetaProvider';
+import { AgentChatPage } from '@/pages/AgentChatPage';
+import { CustomPage } from '@/pages/CustomPage';
+import { DashboardPage } from '@/pages/DashboardPage';
+import { DocFormPage } from '@/pages/DocFormPage';
+import { DocListPage } from '@/pages/DocListPage';
+import { LoginPage } from '@/pages/LoginPage';
+import { Shell } from '@/pages/Shell';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -49,7 +46,9 @@ export default function App() {
   return (
     <AuthProvider>
       <MetaProvider>
-        <RouterProvider router={router} />
+        <TooltipProvider>
+          <RouterProvider router={router} />
+        </TooltipProvider>
       </MetaProvider>
     </AuthProvider>
   );
